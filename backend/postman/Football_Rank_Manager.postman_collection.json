@@ -1,0 +1,546 @@
+{
+  "info": {
+    "name": "Football Rank Manager API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Các request chính để kiểm tra backend Express đồng bộ database V3."
+  },
+  "item": [
+    {
+      "name": "01 - Health & Auth",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "health"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Login Admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"admin_fifa\",\n  \"password\": \"Admin@123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Login OK', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('token', json.data.token);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Current User",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/auth/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 - Dashboard & Ranking",
+      "item": [
+        {
+          "name": "Admin Dashboard",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/dashboard",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "dashboard"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Club Ranking",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/rankings/clubs?limit=10",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "rankings",
+                "clubs?limit=10"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Player Overall Ranking",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/rankings/players?category=OVERALL&limit=10",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "rankings",
+                "players?category=OVERALL&limit=10"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Player Goals Ranking",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/rankings/players?category=GOALS&limit=10",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "rankings",
+                "players?category=GOALS&limit=10"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Public Home",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/public/home",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "public",
+                "home"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 - Clubs, Players, Wallets",
+      "item": [
+        {
+          "name": "List Clubs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/clubs?limit=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "clubs?limit=20"
+              ]
+            }
+          }
+        },
+        {
+          "name": "List Players",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/players?limit=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "players?limit=20"
+              ]
+            }
+          }
+        },
+        {
+          "name": "List Wallets",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/wallets?limit=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "wallets?limit=20"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Wallet Manual Action",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/wallets/{{wallet_id}}/actions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "wallets",
+                "{{wallet_id}}",
+                "actions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"transaction_type\": \"DEPOSIT\",\n  \"direction\": \"CREDIT\",\n  \"amount\": \"1000000\",\n  \"note\": \"Nạp tiền thử bằng Postman\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 - Competitions",
+      "item": [
+        {
+          "name": "List Competitions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/competitions?limit=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "competitions?limit=20"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Competition Detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/competitions/{{competition_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "competitions",
+                "{{competition_id}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Group Standings",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/competitions/{{competition_id}}/standings",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "competitions",
+                "{{competition_id}}",
+                "standings"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Bracket",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/competitions/{{competition_id}}/bracket",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "competitions",
+                "{{competition_id}}",
+                "bracket"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Matches",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/competitions/{{competition_id}}/matches",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "competitions",
+                "{{competition_id}}",
+                "matches"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Set Match Result",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/matches/{{match_id}}/result",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "matches",
+                "{{match_id}}",
+                "result"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"home_score\": 3,\n  \"away_score\": 0,\n  \"home_penalty_score\": null,\n  \"away_penalty_score\": null,\n  \"note\": \"Kết quả thử\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 - Awards & Snapshots",
+      "item": [
+        {
+          "name": "Award Types",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/award-types",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "award-types"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Ranking Snapshot",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/rankings/snapshot",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "rankings",
+                "snapshot"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"season_id\": 2,\n  \"entity\": \"ALL\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Salary History",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/salary-payments?limit=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "salary-payments?limit=20"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000/api"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "competition_id",
+      "value": "2"
+    },
+    {
+      "key": "wallet_id",
+      "value": "1"
+    },
+    {
+      "key": "match_id",
+      "value": "1"
+    }
+  ]
+}
