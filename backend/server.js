@@ -29,10 +29,11 @@ const configuredOrigins = String(process.env.CORS_ORIGINS || '')
   .split(',')
   .map((item) => item.trim())
   .filter(Boolean);
-
+  
 function isAllowedOrigin(origin) {
   if (!origin) return true;
   if (configuredOrigins.includes(origin)) return true;
+  if (origin.includes('vercel.app')) return true; // <-- Cho phép tất cả domain Vercel
   if (!isProduction && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) return true;
   return false;
 }
