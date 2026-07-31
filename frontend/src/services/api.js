@@ -1,5 +1,11 @@
 const configuredBase = String(import.meta.env.VITE_API_BASE_URL || '').trim()
-export const API_BASE = (configuredBase || 'http://127.0.0.1:3000/api').replace(/\/$/, '')
+
+// Nếu chạy trên Vercel thì tự động lấy link Render, chạy dưới máy thì lấy 127.0.0.1
+const defaultApi = (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app'))
+  ? 'https://clb-22.onrender.com/api'
+  : 'http://127.0.0.1:3000/api'
+
+export const API_BASE = (configuredBase || defaultApi).replace(/\/$/, '')
 
 const TOKEN_KEY = 'frm_v2_token'
 
