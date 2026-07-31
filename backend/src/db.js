@@ -25,7 +25,10 @@ const pool = mysql.createPool({
   supportBigNumbers: true,
   bigNumberStrings: true,
   decimalNumbers: false,
-  multipleStatements: false
+  multipleStatements: false,
+  ssl: {
+      rejectUnauthorized: false
+    }
 });
 
 async function query(sql, params = [], connection = pool) {
