@@ -12,10 +12,12 @@ const coreRoutes = require('./src/routes-core');
 const footballRoutes = require('./src/routes-football');
 const competitionRoutes = require('./src/routes-competitions');
 const worldCupRoutes = require('./src/routes-world-cup');
+const nationalTournamentRoutes = require('./src/routes-national-tournaments');
 const stadiumRoutes = require('./src/routes-stadiums');
 const stadiumComplianceRoutes = require('./src/routes-stadium-compliance').router;
 const performanceRoutes = require('./src/routes-performance');
 const influenceRoutes = require('./src/routes-influence').router;
+const playerValuationRoutes = require('./src/routes-player-valuations');
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -29,11 +31,10 @@ const configuredOrigins = String(process.env.CORS_ORIGINS || '')
   .split(',')
   .map((item) => item.trim())
   .filter(Boolean);
-  
+
 function isAllowedOrigin(origin) {
   if (!origin) return true;
   if (configuredOrigins.includes(origin)) return true;
-  if (origin.includes('vercel.app')) return true; // <-- Cho phép tất cả domain Vercel
   if (!isProduction && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) return true;
   return false;
 }
@@ -71,7 +72,7 @@ app.get('/api', (_req, res) => {
     success: true,
     data: {
       name: 'Football Rank Manager API',
-      version: '2.0.14',
+      version: '2.0.16',
       health: '/api/health',
       frontendExpected: process.env.FRONTEND_URL || 'http://localhost:5173'
     }
@@ -111,10 +112,14 @@ app.get('/api/diagnostics/integration', async (_req, res) => {
   await run('playerRankingView', 'SELECT player_id FROM v_player_rankings_current ORDER BY overall_world_rank LIMIT 1');
   await run('competitions', 'SELECT id FROM competitions ORDER BY id DESC LIMIT 1');
   await run('worldCup48', 'SELECT competition_id FROM world_cup_profiles LIMIT 1');
+  await run('nationalSpecial32', 'SELECT competition_id FROM national_cup_profiles LIMIT 1');
+  await run('rankingScope', "SELECT ranking_scope FROM player_ranking_points WHERE ranking_scope IN ('CLUB','NATIONAL_TEAM') LIMIT 1");
   await run('stadiumEconomy', 'SELECT id FROM stadiums LIMIT 1');
   await run('stadiumCompliance', 'SELECT id FROM stadium_standard_profiles LIMIT 1');
   await run('performanceRatings', 'SELECT id FROM match_player_ratings LIMIT 1');
   await run('clubInfluence', 'SELECT club_id FROM club_influence_profiles LIMIT 1');
+  await run('automaticPlayerValuation', 'SELECT id FROM player_valuation_batches LIMIT 1');
+  await run('playerValuationScore', 'SELECT valuation_score FROM players LIMIT 1');
   const ok = Object.values(checks).every((item) => item.ok);
   res.status(ok ? 200 : 500).json({ success: ok, data: { checks } });
 });
@@ -123,10 +128,12 @@ app.use('/api', coreRoutes);
 app.use('/api', footballRoutes);
 app.use('/api', competitionRoutes);
 app.use('/api', worldCupRoutes);
+app.use('/api', nationalTournamentRoutes);
 app.use('/api', stadiumRoutes);
 app.use('/api', stadiumComplianceRoutes);
 app.use('/api', performanceRoutes);
 app.use('/api', influenceRoutes);
+app.use('/api', playerValuationRoutes);
 
 app.use((req, _res, next) => next(new ApiError(404, `Không tìm thấy API ${req.method} ${req.originalUrl}.`)));
 

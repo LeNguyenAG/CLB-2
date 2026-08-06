@@ -3,7 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..')
 const backend=process.env.BACKEND_DIR?path.resolve(process.env.BACKEND_DIR):path.resolve(root,'../backend')
-const routeFiles=['src/routes-core.js','src/routes-football.js','src/routes-competitions.js','src/routes-world-cup.js','src/routes-stadiums.js','src/routes-stadium-compliance.js','src/routes-performance.js','src/routes-influence.js'].map(f=>path.join(backend,f))
+const routeFiles=['src/routes-core.js','src/routes-football.js','src/routes-competitions.js','src/routes-world-cup.js','src/routes-national-tournaments.js','src/routes-stadiums.js','src/routes-stadium-compliance.js','src/routes-performance.js','src/routes-influence.js','src/routes-player-valuations.js'].map(f=>path.join(backend,f))
 if(!routeFiles.every(fs.existsSync)){console.error('SYNC_CHECK_SKIPPED: Không tìm thấy backend ở',backend);process.exit(0)}
 const backendRoutes=new Set()
 for(const file of routeFiles){const text=fs.readFileSync(file,'utf8');for(const m of text.matchAll(/router\.(get|post|put|patch|delete)\(\s*['"]([^'"]+)['"]/g)){backendRoutes.add(`${m[1].toUpperCase()} ${m[2]}`)}}

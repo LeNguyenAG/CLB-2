@@ -62,7 +62,33 @@ const TRANSFER_TYPES = ['PAID', 'FREE'];
 const TRANSFER_STATUSES = ['DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'CANCELLED', 'COMPLETED'];
 const AWARD_CATEGORIES = ['TEAM_MEDAL', 'BEST_PLAYER', 'TOP_SCORER', 'BEST_GOALKEEPER', 'BEST_YOUNG_PLAYER', 'BEST_ASSIST', 'OTHER'];
 const MEDAL_TYPES = ['GOLD', 'SILVER', 'BRONZE', 'NONE'];
-const RANKING_CATEGORIES = ['OVERALL', 'GOALS', 'GOALKEEPER', 'WEALTH', 'MARKET_VALUE'];
+const RANKING_CATEGORIES = ['OVERALL', 'NATIONAL', 'GOALS', 'GOALKEEPER', 'WEALTH', 'MARKET_VALUE'];
+const SNAPSHOT_RANKING_CATEGORIES = ['OVERALL', 'GOALS', 'GOALKEEPER', 'WEALTH', 'MARKET_VALUE'];
+const PLAYER_SORTS = ['NAME_ASC', 'VALUE_DESC', 'VALUE_ASC', 'CHANGE_DESC', 'CHANGE_ASC'];
+
+function compareMoney(left, right) {
+  return BigInt(String(left || 0)) - BigInt(String(right || 0));
+}
+
+function moneyLabel(value) {
+  return `${BigInt(String(value || 0)).toLocaleString('vi-VN')} đ`;
+}
+
+function assertMarketFloor(amount, player, fieldLabel) {
+  if (compareMoney(amount, player.market_value) < 0n) {
+    throw new ApiError(400, `${fieldLabel} không được thấp hơn giá sàn hiện tại của ${player.full_name}: ${moneyLabel(player.market_value)}.`);
+  }
+}
+
+function playerOrder(sort) {
+  return {
+    NAME_ASC: 'full_name ASC,id ASC',
+    VALUE_DESC: 'market_value DESC,valuation_score DESC,full_name ASC',
+    VALUE_ASC: 'market_value ASC,valuation_score ASC,full_name ASC',
+    CHANGE_DESC: 'latest_value_change DESC,market_value DESC,full_name ASC',
+    CHANGE_ASC: 'latest_value_change ASC,market_value DESC,full_name ASC'
+  }[sort];
+}
 
 async function getPlayer(id) {
   const player = await first('SELECT * FROM players WHERE id = ?', [id]);
@@ -430,6 +456,7 @@ router.get('/public/players', async (req, res) => {
   const search = String(req.query.search || '').trim();
   const position = req.query.position ? parseEnum(req.query.position, PLAYER_POSITIONS, 'position') : null;
   const clubId = req.query.club_id ? parsePositiveInt(req.query.club_id, 'club_id') : null;
+  const sort = parseEnum(req.query.sort || 'VALUE_DESC', PLAYER_SORTS, 'sort');
   const where = [];
   const params = [];
   if (search) { where.push('full_name LIKE ?'); params.push(`%${search}%`); }
@@ -437,8 +464,8 @@ router.get('/public/players', async (req, res) => {
   if (clubId) { where.push('club_id = ?'); params.push(clubId); }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const total = await first(`SELECT COUNT(*) AS total FROM v_player_list ${whereSql}`, params);
-  const rows = await query(`SELECT * FROM v_player_list ${whereSql} ORDER BY market_value DESC, full_name ${sqlLimit(limit, offset)}`, params);
-  return ok(res, rows, 200, { page, limit, total: Number(total.total) });
+  const rows = await query(`SELECT * FROM v_player_list ${whereSql} ORDER BY ${playerOrder(sort)} ${sqlLimit(limit, offset)}`, params);
+  return ok(res, rows, 200, { page, limit, total: Number(total.total), sort });
 });
 
 router.get('/public/players/:id', async (req, res) => {
@@ -497,6 +524,43 @@ router.get('/rankings/players', async (req, res) => {
   const category = parseEnum(req.query.category || 'OVERALL', RANKING_CATEGORIES, 'category');
   const clubId = req.query.club_id ? parsePositiveInt(req.query.club_id, 'club_id') : null;
   const limit = Math.min(200, Math.max(1, Number(req.query.limit || 100)));
+  if (category === 'NATIONAL') {
+    const rows = await query(
+      `SELECT ranked.*,
+              DENSE_RANK() OVER(
+                ORDER BY ranked.gold_count DESC,ranked.silver_count DESC,ranked.bronze_count DESC,
+                         ranked.score DESC,ranked.individual_award_count DESC,ranked.player_id
+              ) AS rank_position,
+              NULL AS previous_rank,NULL AS rank_change,NULL AS snapshot_at
+       FROM (
+         SELECT p.id AS player_id,p.full_name,p.photo_url,p.position,p.club_id,c.name AS club_name,
+                p.market_value,COALESCE(w.balance,0) AS wallet_balance,
+                COALESCE(np.national_points,0) AS score,
+                COALESCE(aw.gold_count,0) AS gold_count,COALESCE(aw.silver_count,0) AS silver_count,
+                COALESCE(aw.bronze_count,0) AS bronze_count,COALESCE(aw.individual_award_count,0) AS individual_award_count,
+                np.last_national_point_at
+         FROM players p LEFT JOIN clubs c ON c.id=p.club_id
+         LEFT JOIN wallets w ON w.player_id=p.id AND w.wallet_type='PLAYER'
+         LEFT JOIN (
+           SELECT player_id,SUM(points) AS national_points,MAX(created_at) AS last_national_point_at
+           FROM player_ranking_points WHERE ranking_scope='NATIONAL_TEAM' GROUP BY player_id
+         ) np ON np.player_id=p.id
+         LEFT JOIN (
+           SELECT pa.player_id,
+                  SUM(atp.required_medal_type='GOLD') AS gold_count,
+                  SUM(atp.required_medal_type='SILVER') AS silver_count,
+                  SUM(atp.required_medal_type='BRONZE') AS bronze_count,
+                  SUM(atp.category<>'TEAM_MEDAL') AS individual_award_count
+           FROM player_awards pa JOIN award_types atp ON atp.id=pa.award_type_id
+           WHERE pa.award_context_type='NATIONAL_TEAM' GROUP BY pa.player_id
+         ) aw ON aw.player_id=p.id
+         WHERE (np.player_id IS NOT NULL OR aw.player_id IS NOT NULL)
+           AND (? IS NULL OR p.club_id=?)
+       ) ranked ORDER BY rank_position,ranked.player_id ${sqlLimit(limit)}`,
+      [clubId, clubId]
+    );
+    return ok(res, rows, 200, { category, clubId, rankingScope: 'NATIONAL_TEAM' });
+  }
   const scoreColumn = {
     OVERALL: 'overall_score', GOALS: 'goals', GOALKEEPER: 'goalkeeper_score', WEALTH: 'wallet_balance', MARKET_VALUE: 'market_value'
   }[category];
@@ -582,6 +646,7 @@ router.get('/players', optionalAuthenticate, async (req, res) => {
   let clubId = req.query.club_id ? parsePositiveInt(req.query.club_id, 'club_id') : null;
   if (req.user?.accountType === 'CLUB') clubId = req.user.clubId;
   const status = req.query.status ? parseEnum(req.query.status, PLAYER_STATUSES, 'status') : null;
+  const sort = parseEnum(req.query.sort || 'VALUE_DESC', PLAYER_SORTS, 'sort');
   const where = [];
   const params = [];
   if (search) { where.push('full_name LIKE ?'); params.push(`%${search}%`); }
@@ -590,8 +655,8 @@ router.get('/players', optionalAuthenticate, async (req, res) => {
   if (status) { where.push('status = ?'); params.push(status); }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const total = await first(`SELECT COUNT(*) AS total FROM v_player_list ${whereSql}`, params);
-  const rows = await query(`SELECT * FROM v_player_list ${whereSql} ORDER BY full_name ${sqlLimit(limit, offset)}`, params);
-  return ok(res, rows, 200, { page, limit, total: Number(total.total) });
+  const rows = await query(`SELECT * FROM v_player_list ${whereSql} ORDER BY ${playerOrder(sort)} ${sqlLimit(limit, offset)}`, params);
+  return ok(res, rows, 200, { page, limit, total: Number(total.total), sort });
 });
 
 router.get('/players/:id', optionalAuthenticate, async (req, res) => {
@@ -620,7 +685,8 @@ router.post('/players', authenticate, requireClubOrAdmin, async (req, res) => {
   const shirtNumber = req.body.shirt_number === null || req.body.shirt_number === '' ? null : parsePositiveInt(req.body.shirt_number, 'shirt_number', { min: 1, max: 99 });
   let clubId = req.body.club_id ? parsePositiveInt(req.body.club_id, 'club_id') : null;
   if (req.user.accountType === 'CLUB') clubId = req.user.clubId;
-  const marketValue = req.user.accountType === 'FIFA_ADMIN' ? parseMoney(req.body.market_value || 0, 'market_value') : '0';
+  // Cầu thủ mới luôn bắt đầu từ 0; giá chỉ xuất hiện sau khi có dữ liệu đã xác nhận.
+  const marketValue = '0';
   const status = clubId ? 'ACTIVE' : 'FREE_AGENT';
   const photoUrl = parseText(req.body.photo_url, 'photo_url', { required: false, nullable: true, max: 500 });
 
@@ -705,11 +771,8 @@ router.patch('/players/:id', authenticate, requireClubOrAdmin, async (req, res) 
 });
 
 router.post('/players/:id/market-value', authenticate, requireAdmin, async (req, res) => {
-  const id = parsePositiveInt(req.params.id);
-  const newValue = parseMoney(req.body.new_value, 'new_value');
-  const reason = parseText(req.body.reason, 'reason', { max: 500 });
-  await callProcedure('sp_update_player_market_value', [id, newValue, req.user.id, reason]);
-  return ok(res, await first('SELECT * FROM v_player_market_value_changes WHERE player_id = ?', [id]));
+  parsePositiveInt(req.params.id);
+  throw new ApiError(400, 'Giá cầu thủ được hệ thống định giá tự động. Hãy dùng nút “Làm mới định giá”.');
 });
 
 router.post('/players/:id/release', authenticate, requireClubOrAdmin, async (req, res) => {
@@ -764,6 +827,7 @@ router.post('/player-contracts', authenticate, requireClubOrAdmin, async (req, r
   const contractId = await transaction(async (connection) => {
     const player = await first('SELECT * FROM players WHERE id = ? FOR UPDATE', [playerId], connection);
     if (!player) throw new ApiError(404, 'Không tìm thấy cầu thủ.');
+    assertMarketFloor(salary, player, 'Lương mỗi mùa');
     if (player.club_id && Number(player.club_id) !== clubId) {
       throw new ApiError(400, 'Cầu thủ đang thuộc CLB khác; phải dùng quy trình chuyển nhượng.');
     }
@@ -785,11 +849,17 @@ router.post('/player-contracts', authenticate, requireClubOrAdmin, async (req, r
 
 router.patch('/player-contracts/:id', authenticate, requireClubOrAdmin, async (req, res) => {
   const id = parsePositiveInt(req.params.id);
-  const contract = await first('SELECT * FROM player_contracts WHERE id = ?', [id]);
+  const contract = await first(
+    `SELECT pc.*,p.market_value,p.full_name FROM player_contracts pc
+     JOIN players p ON p.id=pc.player_id WHERE pc.id=?`, [id]
+  );
   if (!contract) throw new ApiError(404, 'Không tìm thấy hợp đồng.');
   assertOwner(req, contract.club_id);
   const body = {};
-  if (req.body.salary_per_season !== undefined) body.salary_per_season = parseMoney(req.body.salary_per_season, 'salary_per_season');
+  if (req.body.salary_per_season !== undefined) {
+    body.salary_per_season = parseMoney(req.body.salary_per_season, 'salary_per_season');
+    assertMarketFloor(body.salary_per_season, contract, 'Lương mỗi mùa');
+  }
   if (req.body.end_season_id !== undefined) body.end_season_id = req.body.end_season_id ? parsePositiveInt(req.body.end_season_id, 'end_season_id') : null;
   if (req.body.note !== undefined) body.note = parseText(req.body.note, 'note', { required: false, nullable: true, max: 500 });
   if (req.body.status !== undefined) {
@@ -940,6 +1010,8 @@ router.post('/transfer-offers', authenticate, requireClubOrAdmin, async (req, re
   if (transferType === 'FREE' && player.club_id) throw new ApiError(400, 'Cầu thủ đang thuộc CLB; phải thanh lý hoặc dùng chuyển nhượng có phí.');
   const transferFee = transferType === 'FREE' ? '0' : parseMoney(req.body.transfer_fee, 'transfer_fee');
   const salary = parseMoney(req.body.new_salary_per_season, 'new_salary_per_season');
+  assertMarketFloor(salary, player, 'Lương mới mỗi mùa');
+  if (transferType === 'PAID') assertMarketFloor(transferFee, player, 'Phí chuyển nhượng');
   const startSeasonId = parsePositiveInt(req.body.contract_start_season_id, 'contract_start_season_id');
   const endSeasonId = req.body.contract_end_season_id ? parsePositiveInt(req.body.contract_end_season_id, 'contract_end_season_id') : null;
   const status = req.user.accountType === 'CLUB' ? 'SENT' : parseEnum(req.body.status || 'SENT', TRANSFER_STATUSES, 'status');
@@ -975,11 +1047,14 @@ router.patch('/transfer-offers/:id/status', authenticate, requireClubOrAdmin, as
 router.post('/transfer-offers/:id/complete', authenticate, requireAdmin, async (req, res) => {
   const id = parsePositiveInt(req.params.id);
   const offer = await first(
-    `SELECT player_id, seller_club_id, buyer_club_id
-     FROM transfer_offers WHERE id = ?`,
+    `SELECT t.player_id,t.seller_club_id,t.buyer_club_id,t.transfer_type,t.transfer_fee,
+            t.new_salary_per_season,p.market_value,p.full_name
+     FROM transfer_offers t JOIN players p ON p.id=t.player_id WHERE t.id=?`,
     [id]
   );
   if (!offer) throw new ApiError(404, 'Không tìm thấy đề nghị chuyển nhượng.');
+  assertMarketFloor(offer.new_salary_per_season, offer, 'Lương mới mỗi mùa');
+  if (offer.transfer_type === 'PAID') assertMarketFloor(offer.transfer_fee, offer, 'Phí chuyển nhượng');
 
   const resultSets = await callProcedure('sp_complete_transfer', [id, req.user.id]);
 
@@ -1133,6 +1208,7 @@ router.post('/player-match-stats/:id/verify', authenticate, requireAdmin, async 
 
 router.get('/honours/players', async (req, res) => {
   const seasonId = req.query.season_id ? parsePositiveInt(req.query.season_id, 'season_id') : null;
+  const scope = parseEnum(req.query.scope || 'ALL', ['ALL', 'CLUB', 'NATIONAL_TEAM'], 'scope');
   const limit = Math.min(300, Math.max(1, Number.parseInt(req.query.limit || '100', 10) || 100));
   const rows = await query(
     `SELECT ranked.*,
@@ -1165,12 +1241,13 @@ router.get('/honours/players', async (req, res) => {
        JOIN seasons season ON season.id = pa.season_id
        LEFT JOIN clubs current_club ON current_club.id = p.club_id
        WHERE (? IS NULL OR pa.season_id = ?)
+         AND (?='ALL' OR pa.award_context_type=?)
        GROUP BY p.id, p.full_name, p.photo_url, p.position, p.shirt_number, p.club_id, current_club.name
      ) ranked
      ORDER BY rank_position, ranked.full_name ${sqlLimit(limit)}`,
-    [seasonId, seasonId]
+    [seasonId, seasonId, scope, scope]
   );
-  return ok(res, rows);
+  return ok(res, rows, 200, { scope, seasonId });
 });
 
 router.get('/honours/clubs', async (req, res) => {
@@ -1314,7 +1391,7 @@ router.post('/rankings/snapshot', authenticate, requireAdmin, async (req, res) =
   const seasonId = parsePositiveInt(req.body.season_id, 'season_id');
   const entity = parseEnum(req.body.entity || 'ALL', ['ALL', 'CLUB', 'PLAYER'], 'entity');
   const clubId = req.body.club_id ? parsePositiveInt(req.body.club_id, 'club_id') : null;
-  const category = req.body.category ? parseEnum(req.body.category, RANKING_CATEGORIES, 'category') : null;
+  const category = req.body.category ? parseEnum(req.body.category, SNAPSHOT_RANKING_CATEGORIES, 'category') : null;
   if (clubId && entity !== 'PLAYER') throw new ApiError(400, 'club_id chỉ áp dụng khi entity = PLAYER.');
 
   if (entity === 'ALL' || entity === 'CLUB') await callProcedure('sp_snapshot_club_rankings', [seasonId]);
@@ -1324,7 +1401,7 @@ router.post('/rankings/snapshot', authenticate, requireAdmin, async (req, res) =
     } else if (category) {
       await callProcedure('sp_snapshot_player_category', [seasonId, category, clubId]);
     } else {
-      for (const item of RANKING_CATEGORIES) {
+      for (const item of SNAPSHOT_RANKING_CATEGORIES) {
         await callProcedure('sp_snapshot_player_category', [seasonId, item, clubId]);
       }
     }
@@ -1351,9 +1428,10 @@ router.post('/ranking-points/players', authenticate, requireAdmin, async (req, r
   const competitionId = req.body.competition_id ? parsePositiveInt(req.body.competition_id, 'competition_id') : null;
   const points = parseDecimal(req.body.points, 'points');
   const sourceType = parseEnum(req.body.source_type || 'ADMIN_ADJUSTMENT', ['BONUS', 'PENALTY', 'ADMIN_ADJUSTMENT'], 'source_type');
+  const rankingScope = parseEnum(req.body.ranking_scope || 'CLUB', ['CLUB', 'NATIONAL_TEAM'], 'ranking_scope');
   const description = parseText(req.body.description, 'description', { max: 500 });
-  const result = await query(`INSERT INTO player_ranking_points(player_id, season_id, competition_id, source_type, points, description)
-    VALUES (?, ?, ?, ?, ?, ?)`, [playerId, seasonId, competitionId, sourceType, points, description]);
+  const result = await query(`INSERT INTO player_ranking_points(player_id, season_id, competition_id, source_type, ranking_scope, points, description)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`, [playerId, seasonId, competitionId, sourceType, rankingScope, points, description]);
   await audit({ userId: req.user.id, actionCode: 'ADJUST_PLAYER_RANKING_POINTS', entityTable: 'player_ranking_points', entityId: result.insertId });
   return ok(res, await first('SELECT * FROM player_ranking_points WHERE id = ?', [result.insertId]), 201);
 });

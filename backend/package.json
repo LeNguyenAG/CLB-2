@@ -1,6 +1,6 @@
 {
   "name": "football-rank-manager-backend",
-  "version": "2.0.14",
+  "version": "2.0.16",
   "private": true,
   "description": "Express API đồng bộ với database football_rank_manager cho website xếp hạng CLB, cầu thủ và giải đấu.",
   "main": "server.js",
@@ -8,12 +8,14 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "check": "node --check server.js && node --check src/db.js && node --check src/auth.js && node --check src/routes-core.js && node --check src/routes-football.js && node --check src/routes-competitions.js && node --check src/routes-world-cup.js && node --check src/routes-stadiums.js && node --check src/routes-stadium-compliance.js && node --check src/performance-rating-formula.js && node --check src/performance-engine.js && node --check src/routes-performance.js && node --check src/routes-influence.js && node --check src/smart-awards.js && node --check src/world-cup-algorithms.js",
+    "check": "node --check server.js && node --check src/db.js && node --check src/auth.js && node --check src/routes-core.js && node --check src/routes-football.js && node --check src/routes-competitions.js && node --check src/routes-world-cup.js && node --check src/routes-national-tournaments.js && node --check src/routes-stadiums.js && node --check src/routes-stadium-compliance.js && node --check src/performance-rating-formula.js && node --check src/performance-engine.js && node --check src/routes-performance.js && node --check src/routes-influence.js && node --check src/player-valuation-formula.js && node --check src/player-valuation-engine.js && node --check src/routes-player-valuations.js && node --check src/smart-awards.js && node --check src/world-cup-algorithms.js && node --check src/national-tournament-algorithms.js",
     "smoke": "node scripts/smoke-test.js",
     "schema-check": "node scripts/schema-sync-check.js",
     "integration": "node scripts/integration-test.mjs",
     "world-cup-test": "node scripts/world-cup-algorithm-test.js",
-    "performance-test": "node scripts/performance-engine-test.js"
+    "performance-test": "node scripts/performance-engine-test.js",
+    "national-tournament-test": "node scripts/national-tournament-algorithm-test.js",
+    "player-valuation-test": "node scripts/player-valuation-test.js"
   },
   "engines": {
     "node": ">=20.0.0"

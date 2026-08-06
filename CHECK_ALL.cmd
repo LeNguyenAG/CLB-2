@@ -3,36 +3,44 @@ setlocal
 cd /d "%~dp0"
 
 echo ============================================================
-echo FOOTBALL RANK MANAGER 2.0.14 - KIEM TRA DONG BO
-ECHO ============================================================
+echo FOOTBALL RANK MANAGER 2.0.16 - KIEM TRA DONG BO
+echo ============================================================
 
 echo.
-echo [1/7] Kiem tra cu phap Backend...
+echo [1/9] Kiem tra cu phap Backend...
 call npm --prefix backend run check || goto :FAIL
 
 echo.
-echo [2/7] Doi chieu Backend voi database.sql...
+echo [2/9] Doi chieu Backend voi database va migration 2.0.16...
 call npm --prefix backend run schema-check || goto :FAIL
 
 echo.
-echo [3/7] Kiem tra cong thuc cham diem cau thu...
+echo [3/9] Kiem tra cong thuc cham diem cau thu...
 call npm --prefix backend run performance-test || goto :FAIL
 
 echo.
-echo [4/7] Kiem tra thuat toan World Cup 48...
+echo [4/9] Kiem tra cong thuc dinh gia cau thu...
+call npm --prefix backend run player-valuation-test || goto :FAIL
+
+echo.
+echo [5/9] Kiem tra thuat toan World Cup 48...
 call npm --prefix backend run world-cup-test || goto :FAIL
 
 echo.
-echo [5/7] Kiem tra cau truc Frontend...
+echo [6/9] Kiem tra chia suat va boc tham giai quoc gia 32 doi...
+call npm --prefix backend run national-tournament-test || goto :FAIL
+
+echo.
+echo [7/9] Kiem tra cau truc Frontend...
 call npm --prefix frontend run check || goto :FAIL
 
 echo.
-echo [6/7] Doi chieu API Frontend voi route Backend...
+echo [8/9] Doi chieu API Frontend voi route Backend...
 set BACKEND_DIR=%~dp0backend
 call npm --prefix frontend run sync-check || goto :FAIL
 
 echo.
-echo [7/7] Kiem tra runtime Public API, dang nhap, JWT va Dashboard...
+echo [9/9] Kiem tra runtime Public API, dang nhap, JWT va Dashboard...
 call npm --prefix frontend run smoke || goto :FAIL
 
 echo.

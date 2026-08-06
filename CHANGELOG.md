@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.0.16 — Automatic Player Valuation & Market Floor
+
+- Định giá toàn bộ cầu thủ theo rating, phong độ gần đây, bàn thắng, kiến tạo, đóng góp theo vị trí, MVP và điểm xếp hạng.
+- Tính cả World Cup 48 và giải quốc gia đặc biệt 32; thành tích quốc gia có hệ số uy tín riêng.
+- Huy chương tập thể được nhân hệ số cống hiến để cầu thủ “hưởng ké” không vượt cầu thủ gánh đội.
+- Cầu thủ mới giữ giá 0; khi có dữ liệu xác nhận, giá tối thiểu bắt đầu từ 10 triệu và không đặt trần cứng.
+- Mỗi kỳ định giá có dao động thị trường giới hạn ±1,75%, lịch sử tăng/giảm và ảnh chụp công thức.
+- Tự nâng lương hợp đồng đang hoạt động lên giá sàn khi định giá tăng; hợp đồng mới và phí chuyển nhượng không được thấp hơn sàn.
+- Thêm lọc giá cao/thấp, tăng/giảm, bảng chi tiết hệ số và tự định giá khi đóng mùa giải.
+
+## 2.0.15 — National Special 32 & Dual-Scope Player Ranking
+
+- Thêm giải quốc gia đặc biệt 32 đội loại trực tiếp, đủ hạng 1–32.
+- Chia suất châu lục theo tỷ lệ Hamilton từ thư viện quốc gia hiện tại.
+- Bốc thăm có/không hạt giống, tách hạt giống mạnh và tránh cùng liên đoàn tối đa.
+- Thêm tiền thưởng FIFA tự cấu hình, điểm tiến sâu cân bằng và danh hiệu cá nhân tự động.
+- Tách điểm cầu thủ `CLUB`/`NATIONAL_TEAM`; giữ BXH tổng thể gộp cả hai.
+- Thêm BXH đội tuyển và bộ lọc vinh danh Tổng hợp/Cấp CLB/Cấp quốc gia.
+- World Cup 48 chốt đủ hạng 1–32, cộng điểm tứ kết/vòng 16/vòng 32 và backfill kỳ cũ.
+- Khóa sửa tỷ số/reset sau khi đã chi thưởng để ngăn thanh toán trùng.
+
 ## 2.0.14 — Performance Rating, Influence & Fan Economy
 
 - Chấm điểm cầu thủ 1–10 theo vị trí và thống kê trận đấu đã xác nhận.

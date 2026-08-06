@@ -334,9 +334,10 @@ async function finalizeCompetitionAwards(competitionId, userId, { allowIncomplet
       );
       await query(
         `INSERT INTO player_ranking_points(
-           player_id, season_id, competition_id, source_type, source_id, points, description
-         ) VALUES (?, ?, ?, 'AWARD', ?, ?, ?)`,
+           player_id, season_id, competition_id, source_type, source_id, ranking_scope, points, description
+         ) VALUES (?, ?, ?, 'AWARD', ?, ?, ?, ?)`,
         [winner.player_id, preview.competition.season_id, competitionId, inserted.insertId,
+          winner.award_context_type === 'NATIONAL_TEAM' ? 'NATIONAL_TEAM' : 'CLUB',
           award.awarded_points, `${award.award_name} tự động – ${preview.competition.name}`],
         connection
       );

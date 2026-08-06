@@ -40,6 +40,12 @@ async function request(path, options = {}) {
   const players = await request('/rankings/players?category=OVERALL&limit=5');
   console.log('✓ Player ranking:', players.data.length);
 
+  const nationalPlayers = await request('/rankings/players?category=NATIONAL&limit=5');
+  console.log('✓ National-team player ranking:', nationalPlayers.data.length);
+
+  const valuation = await request('/player-valuations/summary', { headers: authHeaders });
+  console.log('✓ Automatic player valuation:', valuation.data.formulaVersion);
+
   const competitions = await request('/competitions?limit=5', { headers: authHeaders });
   console.log('✓ Competitions:', competitions.data.length);
 

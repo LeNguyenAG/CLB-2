@@ -117,7 +117,7 @@ async function getWorldCupProfile(competitionId, connection = undefined) {
 
 async function worldCupPayload(competitionId) {
   const profile = await getWorldCupProfile(competitionId);
-  const [entries, groups, groupMembers, standings, rounds, matches, qualified, results, upsetRewards, awards] = await Promise.all([
+  const [entries, groups, groupMembers, standings, rounds, matches, qualified, results, upsetRewards, awards, rewardRules] = await Promise.all([
     query(
       `SELECT wce.*, p.full_name AS player_name, p.photo_url, p.position,
               c.name AS current_club_name
@@ -192,7 +192,8 @@ async function worldCupPayload(competitionId) {
        WHERE pa.competition_id = ? AND pa.award_context_type = 'NATIONAL_TEAM'
        ORDER BY pa.awarded_at DESC`,
       [competitionId]
-    )
+    ),
+    query('SELECT * FROM national_competition_reward_rules WHERE competition_id=? ORDER BY placement_from', [competitionId])
   ]);
 
   const bestThirds = standings
@@ -215,7 +216,8 @@ async function worldCupPayload(competitionId) {
     qualified,
     results,
     upsetRewards,
-    awards
+    awards,
+    rewardRules
   };
 }
 
@@ -350,8 +352,8 @@ async function applyWorldCupUpsetReward(match, winnerEntry, loserEntry, userId, 
   await query('UPDATE world_cup_matches SET highlighted_upset = TRUE WHERE id = ?', [match.id], connection);
   await query(
     `INSERT INTO player_ranking_points(
-       player_id, season_id, competition_id, source_type, source_id, points, description
-     ) VALUES (?, ?, ?, 'BONUS', ?, ?, ?)`,
+       player_id, season_id, competition_id, source_type, source_id, ranking_scope, points, description
+     ) VALUES (?, ?, ?, 'BONUS', ?, 'NATIONAL_TEAM', ?, ?)`,
     [winnerEntry.player_id, profile.season_id, match.competition_id, inserted.insertId, points,
       `Thưởng đánh bại ${placementType === 'CHAMPION' ? 'đương kim vô địch' : 'đương kim á quân'} World Cup (${winnerEntry.country_name} thắng ${loserEntry.country_name})`],
     connection
@@ -399,6 +401,22 @@ router.post('/competitions/world-cup-48', authenticate, requireAdmin, async (req
         championUpsetPoints, runnerupUpsetPoints],
       connection
     );
+    const rewardRules = [
+      [1, 1, 'Vô địch', goldPrize, 120, 'GOLD'],
+      [2, 2, 'Á quân', silverPrize, 80, 'SILVER'],
+      [3, 3, 'Hạng ba', bronzePrize, 55, 'BRONZE'],
+      [4, 4, 'Hạng tư', '0', 40, 'NONE'],
+      [5, 8, 'Tứ kết', '0', 30, 'NONE'],
+      [9, 16, 'Vòng 16 đội', '0', 18, 'NONE'],
+      [17, 32, 'Vòng 32 đội', '0', 8, 'NONE']
+    ];
+    for (const rule of rewardRules) {
+      await query(
+        `INSERT INTO national_competition_reward_rules(
+           competition_id,placement_from,placement_to,placement_label,prize_amount,base_ranking_points,medal_type
+         ) VALUES(?,?,?,?,?,?,?)`, [inserted.insertId, ...rule], connection
+      );
+    }
     await audit({
       userId: req.user.id,
       actionCode: 'CREATE_WORLD_CUP_48',
@@ -670,10 +688,12 @@ router.post('/competitions/:id/world-cup/draw', authenticate, requireAdmin, asyn
 
 router.post('/competitions/:id/world-cup/reset', authenticate, requireAdmin, async (req, res) => {
   const competitionId = parsePositiveInt(req.params.id);
-  await getWorldCupProfile(competitionId);
+  const profile = await getWorldCupProfile(competitionId);
+  if (profile.tournament_finalized_at) {
+    throw new ApiError(400, 'World Cup đã chi thưởng nên không thể reset để tránh trả tiền trùng. Hãy tạo kỳ giải mới.');
+  }
   await transaction(async (connection) => {
-    await query("DELETE FROM player_ranking_points WHERE competition_id = ? AND description LIKE 'Thưởng đánh bại % World Cup%'", [competitionId], connection);
-    await query('DELETE FROM player_ranking_points WHERE competition_id = ? AND source_type = \'AWARD\' AND source_id IN (SELECT id FROM player_awards WHERE competition_id = ? AND award_context_type = \'NATIONAL_TEAM\')', [competitionId, competitionId], connection);
+    await query("DELETE FROM player_ranking_points WHERE competition_id = ? AND ranking_scope = 'NATIONAL_TEAM'", [competitionId], connection);
     await query("DELETE FROM player_awards WHERE competition_id = ? AND award_context_type = 'NATIONAL_TEAM'", [competitionId], connection);
     await query('DELETE FROM world_cup_upset_rewards WHERE competition_id = ?', [competitionId], connection);
     await query('DELETE FROM world_cup_results WHERE competition_id = ?', [competitionId], connection);
@@ -713,6 +733,8 @@ router.post('/world-cup/matches/:id/result', authenticate, requireAdmin, async (
   await transaction(async (connection) => {
     const match = await first('SELECT * FROM world_cup_matches WHERE id = ? FOR UPDATE', [matchId], connection);
     if (!match) throw new ApiError(404, 'Không tìm thấy trận World Cup.');
+    const finalized = await first('SELECT tournament_finalized_at FROM world_cup_profiles WHERE competition_id=?', [match.competition_id], connection);
+    if (finalized?.tournament_finalized_at) throw new ApiError(400, 'World Cup đã chốt nên không thể sửa tỷ số.');
     if (!match.home_entry_id || !match.away_entry_id) throw new ApiError(400, 'Trận đấu chưa đủ hai quốc gia.');
     if (match.status === 'FINISHED') throw new ApiError(400, 'Trận đã chốt kết quả. Hãy reset giải nếu cần làm lại.');
 
@@ -877,8 +899,8 @@ router.post('/competitions/:id/world-cup/individual-awards', authenticate, requi
     );
     await query(
       `INSERT INTO player_ranking_points(
-         player_id, season_id, competition_id, source_type, source_id, points, description
-       ) VALUES (?, ?, ?, 'AWARD', ?, ?, ?)`,
+         player_id, season_id, competition_id, source_type, source_id, ranking_scope, points, description
+       ) VALUES (?, ?, ?, 'AWARD', ?, 'NATIONAL_TEAM', ?, ?)`,
       [entry.player_id, profile.season_id, competitionId, inserted.insertId, points,
         `${awardType.name} World Cup – ${entry.country_name}`],
       connection
@@ -916,8 +938,29 @@ router.post('/competitions/:id/world-cup/finalize', authenticate, requireAdmin, 
     { placement: 3, entryId: thirdMatch.winner_entry_id, medal: 'BRONZE', awardCode: 'WORLD_CUP_BRONZE', prize: String(profile.bronze_prize_amount) },
     { placement: 4, entryId: thirdMatch.loser_entry_id, medal: 'NONE', awardCode: null, prize: '0' }
   ];
+  const eliminated = await query(
+    `SELECT r.round_code,m.loser_entry_id AS entry_id,e.seed_rank
+     FROM world_cup_matches m JOIN world_cup_rounds r ON r.id=m.round_id
+     JOIN world_cup_entries e ON e.id=m.loser_entry_id
+     WHERE m.competition_id=? AND m.status='FINISHED' AND r.round_code IN('QF','R16','R32')
+     ORDER BY r.round_order DESC,e.seed_rank IS NULL,e.seed_rank,e.id`, [competitionId]
+  );
+  for (const [roundCode, start] of [['QF', 5], ['R16', 9], ['R32', 17]]) {
+    eliminated.filter((entry) => entry.round_code === roundCode)
+      .forEach((entry, index) => placements.push({
+        placement: start + index, entryId: entry.entry_id, medal: 'NONE', awardCode: null, prize: '0'
+      }));
+  }
+  if (placements.length !== 32 || new Set(placements.map((item) => Number(item.entryId))).size !== 32) {
+    throw new ApiError(400, 'Nhánh World Cup chưa có đủ kết quả hợp lệ từ vòng 32 đội đến chung kết.');
+  }
 
   await transaction(async (connection) => {
+    const rewardRules = await query(
+      'SELECT * FROM national_competition_reward_rules WHERE competition_id=? ORDER BY placement_from',
+      [competitionId], connection
+    );
+    if (rewardRules.length !== 7) throw new ApiError(400, 'Bộ quy tắc điểm World Cup chưa đầy đủ. Hãy chạy migration v2.0.15.');
     const fifaWallet = await first("SELECT * FROM wallets WHERE wallet_type = 'FIFA' FOR UPDATE", [], connection);
     const totalPrize = placements.reduce((sum, item) => sum + BigInt(item.prize || '0'), 0n);
     if (totalPrize > 0n && (!fifaWallet || BigInt(fifaWallet.balance) < totalPrize)) {
@@ -928,11 +971,12 @@ router.post('/competitions/:id/world-cup/finalize', authenticate, requireAdmin, 
     for (const item of placements) {
       const entry = await first('SELECT * FROM world_cup_entries WHERE id = ?', [item.entryId], connection);
       if (!entry) throw new ApiError(500, 'Không tìm thấy quốc gia ở kết quả cuối.');
-      let rankingPoints = '0.000';
+      const rewardRule = rewardRules.find((rule) => item.placement >= Number(rule.placement_from) && item.placement <= Number(rule.placement_to));
+      if (!rewardRule) throw new ApiError(500, `Thiếu quy tắc điểm cho hạng ${item.placement}.`);
+      const rankingPoints = (Number(rewardRule.base_ranking_points) * Number(profile.coefficient)).toFixed(3);
       let awardId = null;
       if (item.awardCode) {
         const awardType = await first('SELECT * FROM award_types WHERE code = ?', [item.awardCode], connection);
-        rankingPoints = (Number(awardType.base_ranking_points) * Number(profile.coefficient)).toFixed(3);
         const insertedAward = await query(
           `INSERT INTO player_awards(
              player_id, club_id_at_award, award_context_type,
@@ -948,8 +992,8 @@ router.post('/competitions/:id/world-cup/finalize', authenticate, requireAdmin, 
         awardId = insertedAward.insertId;
         await query(
           `INSERT INTO player_ranking_points(
-             player_id, season_id, competition_id, source_type, source_id, points, description
-           ) VALUES (?, ?, ?, 'AWARD', ?, ?, ?)`,
+             player_id, season_id, competition_id, source_type, source_id, ranking_scope, points, description
+           ) VALUES (?, ?, ?, 'AWARD', ?, 'NATIONAL_TEAM', ?, ?)`,
           [entry.player_id, profile.season_id, competitionId, awardId, rankingPoints,
             `${awardType.name} – ${entry.country_name}`],
           connection
@@ -963,6 +1007,15 @@ router.post('/competitions/:id/world-cup/finalize', authenticate, requireAdmin, 
         [competitionId, entry.id, item.placement, item.medal, rankingPoints, req.user.id],
         connection
       );
+      if (!item.awardCode) {
+        await query(
+          `INSERT INTO player_ranking_points(
+             player_id,season_id,competition_id,source_type,source_id,ranking_scope,points,description
+           ) VALUES(?,?,?,'BONUS',?,'NATIONAL_TEAM',?,?)`,
+          [entry.player_id, profile.season_id, competitionId, insertedResult.insertId, rankingPoints,
+            `${rewardRule.placement_label} – ${profile.competition_name} (${entry.country_name})`], connection
+        );
+      }
 
       if (BigInt(item.prize || '0') > 0n) {
         const playerWallet = await first("SELECT * FROM wallets WHERE wallet_type = 'PLAYER' AND player_id = ? FOR UPDATE", [entry.player_id], connection);

@@ -152,16 +152,27 @@ router.get('/competitions', optionalAuthenticate, async (req, res) => {
   const total = await first(`SELECT COUNT(*) AS total FROM competitions c ${whereSql}`, params);
   const rows = await query(
     `SELECT c.*, cs.code AS series_code, cs.name AS series_name, s.name AS season_name,
-            CASE WHEN EXISTS (SELECT 1 FROM world_cup_profiles wcp WHERE wcp.competition_id = c.id)
-              THEN 'WORLD_CUP_48' ELSE 'CLUB' END AS competition_mode,
-            CASE WHEN EXISTS (SELECT 1 FROM world_cup_profiles wcp WHERE wcp.competition_id = c.id)
-              THEN (SELECT COUNT(*) FROM world_cup_entries wce WHERE wce.competition_id = c.id AND wce.status = 'APPROVED')
+            CASE
+              WHEN EXISTS (SELECT 1 FROM world_cup_profiles wcp WHERE wcp.competition_id = c.id) THEN 'WORLD_CUP_48'
+              WHEN EXISTS (SELECT 1 FROM national_cup_profiles ncp WHERE ncp.competition_id = c.id) THEN 'NATIONAL_SPECIAL_32'
+              ELSE 'CLUB' END AS competition_mode,
+            CASE
+              WHEN EXISTS (SELECT 1 FROM world_cup_profiles wcp WHERE wcp.competition_id = c.id)
+                THEN (SELECT COUNT(*) FROM world_cup_entries wce WHERE wce.competition_id = c.id AND wce.status = 'APPROVED')
+              WHEN EXISTS (SELECT 1 FROM national_cup_profiles ncp WHERE ncp.competition_id = c.id)
+                THEN (SELECT COUNT(*) FROM national_cup_entries nce WHERE nce.competition_id = c.id AND nce.status = 'APPROVED')
               ELSE (SELECT COUNT(*) FROM competition_participants cp WHERE cp.competition_id = c.id AND cp.registration_status = 'APPROVED') END AS approved_teams,
-            CASE WHEN EXISTS (SELECT 1 FROM world_cup_profiles wcp WHERE wcp.competition_id = c.id)
-              THEN (SELECT COUNT(*) FROM world_cup_matches wcm WHERE wcm.competition_id = c.id)
+            CASE
+              WHEN EXISTS (SELECT 1 FROM world_cup_profiles wcp WHERE wcp.competition_id = c.id)
+                THEN (SELECT COUNT(*) FROM world_cup_matches wcm WHERE wcm.competition_id = c.id)
+              WHEN EXISTS (SELECT 1 FROM national_cup_profiles ncp WHERE ncp.competition_id = c.id)
+                THEN (SELECT COUNT(*) FROM national_cup_matches ncm WHERE ncm.competition_id = c.id)
               ELSE (SELECT COUNT(*) FROM matches m WHERE m.competition_id = c.id) END AS match_count,
-            CASE WHEN EXISTS (SELECT 1 FROM world_cup_profiles wcp WHERE wcp.competition_id = c.id)
-              THEN (SELECT COUNT(*) FROM world_cup_matches wcm WHERE wcm.competition_id = c.id AND wcm.status = 'FINISHED')
+            CASE
+              WHEN EXISTS (SELECT 1 FROM world_cup_profiles wcp WHERE wcp.competition_id = c.id)
+                THEN (SELECT COUNT(*) FROM world_cup_matches wcm WHERE wcm.competition_id = c.id AND wcm.status = 'FINISHED')
+              WHEN EXISTS (SELECT 1 FROM national_cup_profiles ncp WHERE ncp.competition_id = c.id)
+                THEN (SELECT COUNT(*) FROM national_cup_matches ncm WHERE ncm.competition_id = c.id AND ncm.status = 'FINISHED')
               ELSE (SELECT COUNT(*) FROM matches m WHERE m.competition_id = c.id AND m.status = 'FINISHED') END AS finished_matches
      FROM competitions c JOIN competition_series cs ON cs.id = c.series_id JOIN seasons s ON s.id = c.season_id
      ${whereSql} ORDER BY s.sequence_no DESC, c.created_at DESC ${sqlLimit(limit, offset)}`, params
@@ -173,7 +184,8 @@ router.get('/competitions/:id', optionalAuthenticate, async (req, res) => {
   const id = parsePositiveInt(req.params.id);
   const competition = await first(
     `SELECT c.*, cs.code AS series_code, cs.name AS series_name, s.name AS season_name,
-            CASE WHEN wcp.competition_id IS NOT NULL THEN 'WORLD_CUP_48' ELSE 'CLUB' END AS competition_mode,
+            CASE WHEN wcp.competition_id IS NOT NULL THEN 'WORLD_CUP_48'
+                 WHEN ncp.competition_id IS NOT NULL THEN 'NATIONAL_SPECIAL_32' ELSE 'CLUB' END AS competition_mode,
             wcp.visual_theme AS world_cup_visual_theme,
             wcp.draw_mode AS world_cup_draw_mode,
             wcp.pairing_mode AS world_cup_pairing_mode
@@ -181,6 +193,7 @@ router.get('/competitions/:id', optionalAuthenticate, async (req, res) => {
      JOIN competition_series cs ON cs.id = c.series_id
      JOIN seasons s ON s.id = c.season_id
      LEFT JOIN world_cup_profiles wcp ON wcp.competition_id = c.id
+     LEFT JOIN national_cup_profiles ncp ON ncp.competition_id = c.id
      WHERE c.id = ?`, [id]
   );
   if (!competition) throw new ApiError(404, 'Không tìm thấy giải đấu.');

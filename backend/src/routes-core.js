@@ -32,6 +32,7 @@ const {
 } = require('./auth');
 
 const router = express.Router();
+const { recalculatePlayerValues } = require('./player-valuation-engine');
 const loginLimiter = rateLimit({ windowMs: 10 * 60 * 1000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false });
 
 const CLUB_STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED'];
@@ -378,6 +379,8 @@ router.post('/system/reset-demo-data', authenticate, requireAdmin, async (req, r
 
   const truncateTables = [
     'audit_logs',
+    'player_valuation_results',
+    'player_valuation_batches',
     'player_ranking_snapshots',
     'club_ranking_snapshots',
     'ranking_snapshot_batches',
@@ -543,7 +546,24 @@ router.post('/seasons/:id/activate', authenticate, requireAdmin, async (req, res
 router.post('/seasons/:id/close', authenticate, requireAdmin, async (req, res) => {
   const id = parsePositiveInt(req.params.id);
   const sets = await callProcedure('sp_close_season', [id, req.user.id]);
-  return ok(res, { message: 'Đã kết thúc mùa giải, trả lương và chốt dữ liệu.', resultSets: sets });
+  let valuation = null;
+  let valuationWarning = null;
+  try {
+    valuation = await recalculatePlayerValues({
+      userId: req.user.id,
+      note: `Tự động định giá sau khi kết thúc mùa #${id}`
+    });
+  } catch (error) {
+    valuationWarning = error.message;
+  }
+  return ok(res, {
+    message: valuationWarning
+      ? 'Đã kết thúc mùa và trả lương; bước định giá tự động cần chạy lại từ trang Cầu thủ.'
+      : 'Đã kết thúc mùa, trả lương và tự động cập nhật giá cầu thủ.',
+    resultSets: sets,
+    valuationBatch: valuation?.batch || null,
+    valuationWarning
+  });
 });
 
 
