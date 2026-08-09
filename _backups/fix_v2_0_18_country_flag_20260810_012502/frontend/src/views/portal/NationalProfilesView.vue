@@ -85,19 +85,7 @@ function selectPlayer(row, allowDraft = true) {
   if (allowDraft) {
     try {
       const stored = JSON.parse(localStorage.getItem(draftKey(row.player_id)) || 'null')
-      const restored = stored ? { ...base, ...stored, player_id: Number(row.player_id), full_name: row.full_name } : base
-      // A saved catalog row is the source of truth. Old browser drafts must not
-      // put a stale flag/confederation back on the same country assignment.
-      if (stored && base.country_catalog_id && Number(stored.country_catalog_id) === Number(base.country_catalog_id)) {
-        restored.country_name = base.country_name
-        restored.country_code = base.country_code
-        restored.flag_url = base.flag_url
-        restored.flag_emoji = base.flag_emoji
-        restored.catalog_name_vi = base.catalog_name_vi
-        restored.catalog_name_en = base.catalog_name_en
-        restored.confederation = base.confederation
-      }
-      form.value = restored
+      form.value = stored ? { ...base, ...stored, player_id: Number(row.player_id), full_name: row.full_name } : base
       if (stored) uiStore.notify(`Đã khôi phục phần nhập chưa lưu của ${row.full_name}.`, 'warning')
     } catch { form.value = base }
   } else form.value = base
