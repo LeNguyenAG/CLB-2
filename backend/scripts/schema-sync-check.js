@@ -7,7 +7,8 @@ const root = path.resolve(__dirname, '..');
 const sql = [
   fs.readFileSync(path.join(root, 'database', 'football_rank_manager_full_v3.sql'), 'utf8'),
   fs.readFileSync(path.join(root, 'database', 'UPDATE_V2_0_15_NATIONAL_TOURNAMENTS.sql'), 'utf8'),
-  fs.readFileSync(path.join(root, 'database', 'UPDATE_V2_0_16_AUTOMATIC_PLAYER_VALUATION.sql'), 'utf8')
+  fs.readFileSync(path.join(root, 'database', 'UPDATE_V2_0_16_AUTOMATIC_PLAYER_VALUATION.sql'), 'utf8'),
+  fs.readFileSync(path.join(root, 'database', 'UPDATE_V2_0_18_NATIONAL_32_ADMIN_EXPERIENCE.sql'), 'utf8')
 ].join('\n');
 const source = ['routes-core.js', 'routes-football.js', 'routes-competitions.js', 'routes-world-cup.js', 'routes-national-tournaments.js', 'routes-stadiums.js', 'routes-stadium-compliance.js', 'routes-performance.js', 'routes-influence.js', 'routes-player-valuations.js']
   .map((file) => fs.readFileSync(path.join(root, 'src', file), 'utf8'))
@@ -64,11 +65,25 @@ const missingValuationFeatures = requiredValuationFeatures
   .filter(([, expression]) => !expression.test(sql + '\n' + source))
   .map(([name]) => name);
 
-if (missingProcedures.length || missingObjects.length || missingValuationFeatures.length) {
+const requiredNationalQuotaFeatures = [
+  ['quota world strength', /frm_v218_add_column\(\s*'national_cup_confederation_quotas','world_cup_strength_points'/i],
+  ['quota national strength', /frm_v218_add_column\(\s*'national_cup_confederation_quotas','national_cup_strength_points'/i],
+  ['quota lower bound', /frm_v218_add_column\(\s*'national_cup_confederation_quotas','minimum_slot_count'/i],
+  ['quota upper bound', /frm_v218_add_column\(\s*'national_cup_confederation_quotas','maximum_slot_count'/i],
+  ['quota algorithm enum', /CAPACITY_STRENGTH_HAMILTON/i],
+  ['eligible profile API', /national-tournament\/eligible-profiles/i],
+  ['quota refresh API', /national-tournament\/recalculate-quotas/i]
+];
+const missingNationalQuotaFeatures = requiredNationalQuotaFeatures
+  .filter(([, expression]) => !expression.test(sql + '\n' + source))
+  .map(([name]) => name);
+
+if (missingProcedures.length || missingObjects.length || missingValuationFeatures.length || missingNationalQuotaFeatures.length) {
   console.error('SCHEMA_SYNC_FAILED');
   if (missingProcedures.length) console.error('Thủ tục thiếu:', missingProcedures.join(', '));
   if (missingObjects.length) console.error('Bảng/view thiếu:', missingObjects.join(', '));
   if (missingValuationFeatures.length) console.error('Thành phần định giá thiếu:', missingValuationFeatures.join(', '));
+  if (missingNationalQuotaFeatures.length) console.error('Thành phần hạn ngạch thiếu:', missingNationalQuotaFeatures.join(', '));
   process.exit(1);
 }
 
@@ -76,3 +91,4 @@ console.log('SCHEMA_SYNC_OK');
 console.log(`Procedures used by API: ${calledProcedures.size}`);
 console.log(`Required tables/views checked: ${requiredObjects.length}`);
 console.log(`Valuation schema/API features checked: ${requiredValuationFeatures.length}`);
+console.log(`National quota schema/API features checked: ${requiredNationalQuotaFeatures.length}`);

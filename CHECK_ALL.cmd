@@ -3,7 +3,7 @@ setlocal
 cd /d "%~dp0"
 
 echo ============================================================
-echo FOOTBALL RANK MANAGER 2.0.16 - KIEM TRA DONG BO
+echo FOOTBALL RANK MANAGER 2.0.18 - KIEM TRA DONG BO
 echo ============================================================
 
 echo.
@@ -11,7 +11,7 @@ echo [1/9] Kiem tra cu phap Backend...
 call npm --prefix backend run check || goto :FAIL
 
 echo.
-echo [2/9] Doi chieu Backend voi database va migration 2.0.16...
+echo [2/9] Doi chieu Backend voi database va migration 2.0.18...
 call npm --prefix backend run schema-check || goto :FAIL
 
 echo.

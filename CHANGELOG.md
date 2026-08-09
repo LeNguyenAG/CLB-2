@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.0.18 — Verified National 32 Admin Experience
+
+- Đồng bộ nguồn châu lục giữa thư viện quốc gia, API hạn ngạch, bộ lọc Admin và dữ liệu lưu giải; không còn tình trạng giao diện hiện một khu vực nhưng backend tính sang khu vực khác.
+- Thêm API quét riêng chỉ trả các quốc gia có cầu thủ đại diện đang hoạt động và có liên kết danh mục hợp lệ.
+- Làm lại công thức 32 suất: 80% quy mô, 20% World Cup/giải quốc gia, dùng căn bậc hai để giảm lợi thế tích lũy quá lớn.
+- Giới hạn điều chỉnh thành tích quanh tỷ lệ quy mô; mọi suất luôn nhỏ hơn hoặc bằng số quốc gia có thể chọn.
+- Lưu riêng điểm World Cup, điểm giải quốc gia, số chức vô địch, huy chương, mục tiêu tỷ lệ và biên suất để FIFA Admin kiểm tra.
+- Tự ẩn khu vực đủ suất và tự mở đúng khu vực khi bỏ đại diện.
+- Khóa bốc thăm khi danh sách có thay đổi chưa lưu, hạt giống trùng hoặc giải chưa tính lại hạn ngạch v2.0.18.
+- Migration không tự gắn nhãn công thức mới cho hạn ngạch cũ; Admin phải chủ động bấm Tính lại hạn ngạch.
+- Sửa CMD để bỏ qua dòng trống/chú thích trong tệp đường dẫn và luôn hỏi lại khi chưa có đường dẫn hợp lệ.
+- Giữ hiệu ứng nhẹ, responsive và không thêm thư viện nặng.
+
+## 2.0.17 — Fair Continental Quotas & Selection UX
+
+- Làm lại màn hình chọn 32 đại diện bằng thẻ châu lục có màu, tiến độ, số suất còn thiếu và giải thích căn cứ phân bổ.
+- Thêm tìm riêng theo quốc gia, cầu thủ/CLB; lọc châu lục; sắp xếp theo đề xuất, hạt giống hoặc tên.
+- Tự ẩn quốc gia thuộc châu lục đã đủ suất; tự hiện lại ngay khi Admin bỏ một đại diện.
+- Chia 32 suất theo 80% số quốc gia có đại diện hợp lệ và 20% thành tích World Cup/giải quốc gia lịch sử.
+- Luôn giới hạn số suất không vượt số quốc gia có thể chọn; từ chối phân bổ nếu toàn hệ thống chưa đủ 32 quốc gia hợp lệ.
+- Thêm nút tính lại hạn ngạch cho giải chưa bốc thăm, lưu ảnh chụp trọng số để Admin kiểm tra.
+- Giữ hiệu ứng nhẹ, responsive, không thêm thư viện giao diện nặng.
+
 ## 2.0.16 — Automatic Player Valuation & Market Floor
 
 - Định giá toàn bộ cầu thủ theo rating, phong độ gần đây, bàn thắng, kiến tạo, đóng góp theo vị trí, MVP và điểm xếp hạng.
