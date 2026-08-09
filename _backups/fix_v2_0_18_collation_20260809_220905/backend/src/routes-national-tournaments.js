@@ -47,15 +47,14 @@ async function calculateQuotas(connection = undefined) {
             COALESCE(history.championship_count,0) AS championship_count,
             COALESCE(history.medal_count,0) AS medal_count
      FROM (
-       SELECT CONVERT(cc.confederation USING utf8mb4) COLLATE utf8mb4_unicode_ci AS confederation,
-              COUNT(DISTINCT cc.id) AS available_country_count
+       SELECT cc.confederation,COUNT(DISTINCT cc.id) AS available_country_count
        FROM country_catalog cc
        JOIN player_national_profiles np
          ON np.country_catalog_id=cc.id AND np.is_active=TRUE
        JOIN players p
          ON p.id=np.player_id AND p.status IN ('ACTIVE','FREE_AGENT','TRANSFER_LISTED')
        WHERE cc.is_active=TRUE
-       GROUP BY CONVERT(cc.confederation USING utf8mb4) COLLATE utf8mb4_unicode_ci
+       GROUP BY cc.confederation
      ) available
      LEFT JOIN (
        SELECT history_rows.confederation,
@@ -65,10 +64,7 @@ async function calculateQuotas(connection = undefined) {
               SUM(history_rows.is_champion) AS championship_count,
               SUM(history_rows.is_medal) AS medal_count
        FROM (
-         SELECT COALESCE(
-                  CONVERT(cc.confederation USING utf8mb4) COLLATE utf8mb4_unicode_ci,
-                  CONVERT(e.confederation USING utf8mb4) COLLATE utf8mb4_unicode_ci
-                ) AS confederation,
+         SELECT COALESCE(cc.confederation,e.confederation) AS confederation,
                 CASE
                   WHEN r.placement=1 THEN 120 WHEN r.placement=2 THEN 80
                   WHEN r.placement=3 THEN 55 WHEN r.placement=4 THEN 35
@@ -82,10 +78,7 @@ async function calculateQuotas(connection = undefined) {
          JOIN world_cup_entries e ON e.id=r.entry_id
          LEFT JOIN country_catalog cc ON cc.id=e.country_catalog_id
          UNION ALL
-         SELECT COALESCE(
-                  CONVERT(cc.confederation USING utf8mb4) COLLATE utf8mb4_unicode_ci,
-                  CONVERT(e.confederation USING utf8mb4) COLLATE utf8mb4_unicode_ci
-                ) AS confederation,
+         SELECT COALESCE(cc.confederation,e.confederation) AS confederation,
                 0 AS world_points,
                 CASE
                   WHEN r.placement=1 THEN 80 WHEN r.placement=2 THEN 52
@@ -145,14 +138,8 @@ async function eligibleNationalProfiles() {
             np.world_seed_rank,TRUE AS is_active,np.country_name AS legacy_country_name,
             np.country_code AS legacy_country_code,np.confederation AS legacy_confederation,
             CASE
-              WHEN CONVERT(np.country_code USING utf8mb4) COLLATE utf8mb4_unicode_ci
-                     <> CONVERT(cc.fifa_code USING utf8mb4) COLLATE utf8mb4_unicode_ci
-                OR CONVERT(np.confederation USING utf8mb4) COLLATE utf8mb4_unicode_ci
-                     <> CONVERT(cc.confederation USING utf8mb4) COLLATE utf8mb4_unicode_ci
-                OR CONVERT(np.country_name USING utf8mb4) COLLATE utf8mb4_unicode_ci NOT IN(
-                     CONVERT(cc.name_vi USING utf8mb4) COLLATE utf8mb4_unicode_ci,
-                     CONVERT(cc.name_en USING utf8mb4) COLLATE utf8mb4_unicode_ci
-                   )
+              WHEN np.country_code<>cc.fifa_code OR np.confederation<>cc.confederation
+                OR np.country_name NOT IN(cc.name_vi,cc.name_en)
               THEN TRUE ELSE FALSE
             END AS catalog_metadata_changed
      FROM player_national_profiles np
