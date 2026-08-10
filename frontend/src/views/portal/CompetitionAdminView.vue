@@ -79,7 +79,8 @@ const tabs = computed(() => [
   ["finish", "Kết thúc giải", CheckCircle2],
 ]);
 async function load() {
-  loading.value = true;
+  // Chỉ thay toàn bộ trang bằng skeleton ở lần tải đầu. Các lần làm mới sau
+  // giữ nguyên DOM để không làm mất tab và vị trí cuộn của người dùng.
   try {
     const [d, g, b, m, c, r] = await Promise.all([
       api.get(`/competitions/${id}`),

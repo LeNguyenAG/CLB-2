@@ -21,7 +21,7 @@ const topThree = computed(() => leaders.value.slice(0, 3))
 
 async function load() {
   if (!competitionId.value) { payload.value = null; return }
-  loading.value = true
+  if (!payload.value) loading.value = true
   try { payload.value = (await api.get(`/competitions/${competitionId.value}/performance`)).data }
   catch (error) { uiStore.notify(error.message, 'error') }
   finally { loading.value = false }

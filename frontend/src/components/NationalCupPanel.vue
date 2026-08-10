@@ -257,7 +257,8 @@ function clearFilters() {
   profileSort.value = "RECOMMENDED";
 }
 async function load() {
-  loading.value = true;
+  // Giữ giao diện hiện tại khi đồng bộ lại dữ liệu sau lưu tỷ số, bốc thăm,
+  // chốt giải... để không mất vị trí cuộn.
   try {
     const requests = [
       api.get(

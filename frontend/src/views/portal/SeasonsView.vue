@@ -31,7 +31,6 @@ const resetPhrase = ref('')
 const resetPassword = ref('')
 
 async function load() {
-  loading.value = true
   try {
     rows.value = (await api.get('/seasons')).data
   } catch (error) {

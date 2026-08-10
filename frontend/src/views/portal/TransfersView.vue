@@ -36,7 +36,6 @@ function blankForm() {
 }
 
 async function load(page = 1) {
-  loading.value = true
   try {
     const path = tab.value === 'offers' ? '/transfer-offers' : '/transfers/history'
     const result = await api.get(path, { page, limit: 20, status: tab.value === 'offers' ? status.value : '' })

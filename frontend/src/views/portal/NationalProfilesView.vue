@@ -58,7 +58,6 @@ const filteredRows = computed(() => {
 })
 
 async function load() {
-  loading.value = true
   try {
     rows.value = (await api.get('/world-cup/national-profiles')).data
     if (selected.value) {

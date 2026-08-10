@@ -115,7 +115,7 @@ async function loadRequirements() {
 
 async function loadOptions() {
   if (!selectedMatchId.value || !props.clubId) return
-  loading.value = true
+  if (!venueData.value) loading.value = true
   try {
     const response = await api.get(`/stadium-compliance/matches/${selectedMatchId.value}/options`, { club_id: props.clubId })
     venueData.value = response.data

@@ -74,7 +74,6 @@ async function loadValuationSummary() {
 }
 
 async function load(page = 1) {
-  loading.value = true
   try {
     const path = tab.value === 'players' ? '/players' : '/staff'
     const query = tab.value === 'players' ? { page, limit: 20, ...filters.value } : { page, limit: 20 }

@@ -198,7 +198,8 @@ watch(
 );
 
 async function load() {
-  loading.value = true;
+  // Refresh nền sau thao tác lưu để bảng/trận đấu không biến mất rồi kéo
+  // viewport về đầu trang. Skeleton chỉ dùng cho lần mở đầu tiên.
   try {
     const [world, nationalProfiles] = await Promise.all([
       api.get(`/competitions/${props.competitionId}/world-cup`),

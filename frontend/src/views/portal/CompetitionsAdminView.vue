@@ -62,7 +62,6 @@ function resetCompetition() {
   };
 }
 async function load(page = 1) {
-  loading.value = true;
   try {
     const response = await api.get("/competitions", {
       page,
