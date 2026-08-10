@@ -112,10 +112,8 @@ function drawNationalKnockout(entries, mode = 'SEEDED_CONSTRAINED') {
   const explicitSeeds = entries.filter((entry) => Number(entry.seed_rank) > 0)
     .sort((a, b) => Number(a.seed_rank) - Number(b.seed_rank) || Number(a.id) - Number(b.id));
   const useSeeds = mode === 'SEEDED_CONSTRAINED' && explicitSeeds.length > 0;
-  const rankedIds = new Set(explicitSeeds.slice(0, 16).map((entry) => Number(entry.id)));
-  const fillSeeds = shuffle(entries.filter((entry) => !rankedIds.has(Number(entry.id))))
-    .slice(0, Math.max(0, 16 - rankedIds.size));
-  const seeded = useSeeds ? [...explicitSeeds.slice(0, 16), ...fillSeeds] : [];
+  const rankedIds = new Set(explicitSeeds.slice(0, 8).map((entry) => Number(entry.id)));
+  const seeded = useSeeds ? explicitSeeds.slice(0, 8) : [];
   const seededIds = new Set(seeded.map((entry) => Number(entry.id)));
   const unseeded = useSeeds ? entries.filter((entry) => !seededIds.has(Number(entry.id))) : [];
 
@@ -130,6 +128,12 @@ function drawNationalKnockout(entries, mode = 'SEEDED_CONSTRAINED') {
         const differentIndex = remaining.findIndex((entry) => entry.confederation !== seed.confederation);
         const index = differentIndex >= 0 ? differentIndex : 0;
         pairs.push([seed, remaining.splice(index, 1)[0]]);
+      }
+      while (remaining.length) {
+        const home = remaining.shift();
+        const differentIndex = remaining.findIndex((entry) => entry.confederation !== home.confederation);
+        const index = differentIndex >= 0 ? differentIndex : 0;
+        pairs.push([home, remaining.splice(index, 1)[0]]);
       }
     } else {
       const remaining = shuffle(entries);
@@ -151,8 +155,11 @@ function drawNationalKnockout(entries, mode = 'SEEDED_CONSTRAINED') {
   if (useSeeds) {
     bestPairs.sort((a, b) => Number(a[0].seed_rank || 9999) - Number(b[0].seed_rank || 9999)
       || Number(a[0].id) - Number(b[0].id));
-    const bracketOrder = [0, 15, 7, 8, 3, 12, 4, 11, 1, 14, 6, 9, 2, 13, 5, 10];
-    bestPairs = bracketOrder.map((index) => bestPairs[index]);
+    const seedPairs = bestPairs.filter((pair) => Number(pair[0].seed_rank) > 0 && Number(pair[0].seed_rank) <= 8)
+      .sort((a, b) => Number(a[0].seed_rank) - Number(b[0].seed_rank));
+    const otherPairs = bestPairs.filter((pair) => !(Number(pair[0].seed_rank) > 0 && Number(pair[0].seed_rank) <= 8));
+    const seedOrder = [0, 7, 3, 4, 1, 6, 2, 5];
+    bestPairs = seedOrder.flatMap((index) => [seedPairs[index], otherPairs.shift()]).filter(Boolean);
   } else {
     bestPairs = shuffle(bestPairs);
   }
@@ -160,7 +167,7 @@ function drawNationalKnockout(entries, mode = 'SEEDED_CONSTRAINED') {
   return {
     pairs: bestPairs,
     used_seeding: useSeeds,
-    explicit_seed_count: explicitSeeds.length,
+    explicit_seed_count: seeded.length,
     same_confederation_matches: bestPenalty,
     warning: bestPenalty > 0
       ? `Không thể tránh hoàn toàn các cặp cùng liên đoàn; còn ${bestPenalty} cặp ở vòng 32 đội.`

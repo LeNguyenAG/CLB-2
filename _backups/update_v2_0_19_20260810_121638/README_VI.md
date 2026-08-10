@@ -1,6 +1,12 @@
-# Football Rank Manager 2.0.19
+# Football Rank Manager 2.0.20
 
 Phiên bản đầy đủ giữ toàn bộ quản lý CLB, cầu thủ, ví tiền, chuyển nhượng, sân vận động, giải CLB, World Cup 48, giải quốc gia 32 đội, danh hiệu, định giá và bảng xếp hạng.
+
+## Cập nhật 2.0.20
+
+- Tự dùng lại logo và thông số của mùa gần nhất khi tạo giải cùng hệ.
+- Tự xếp 8 hạt giống quốc gia và 4 hạt giống CLB theo thành tích.
+- Bỏ nhập hạt giống thủ công; hiển thị huy hiệu S1–S8/S1–S4 trên giao diện.
 
 ## Cập nhật 2.0.19
 

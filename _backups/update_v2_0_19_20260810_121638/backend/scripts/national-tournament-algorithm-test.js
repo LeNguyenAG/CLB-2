@@ -79,6 +79,11 @@ const draw = drawNationalKnockout(entries, 'SEEDED_CONSTRAINED');
 assert.equal(draw.pairs.length, 16);
 assert.equal(new Set(draw.pairs.flat().map((entry) => entry.id)).size, 32);
 assert.equal(draw.used_seeding, true);
+assert.equal(draw.explicit_seed_count, 8);
+assert(draw.pairs.every((pair) => !(
+  Number(pair[0].seed_rank) > 0 && Number(pair[0].seed_rank) <= 8
+  && Number(pair[1].seed_rank) > 0 && Number(pair[1].seed_rank) <= 8
+)));
 assert.equal(draw.same_confederation_matches, 0);
 
 const randomDraw = drawNationalKnockout(entries.map((entry) => ({ ...entry, seed_rank: null })), 'SEEDED_CONSTRAINED');

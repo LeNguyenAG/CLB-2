@@ -9,6 +9,7 @@ const {
 } = require('./db');
 const { authenticate, requireAdmin } = require('./auth');
 const { allocateConfederationQuotas, drawNationalKnockout } = require('./national-tournament-algorithms');
+const { refreshNationalPerformanceRanks, assignNationalTournamentSeeds } = require('./automatic-seeding');
 
 const router = express.Router();
 const DRAW_MODES = ['SEEDED_CONSTRAINED', 'FULL_RANDOM'];
@@ -40,6 +41,7 @@ async function getProfile(competitionId, connection = undefined) {
 }
 
 async function calculateQuotas(connection = undefined) {
+  await refreshNationalPerformanceRanks(connection);
   const rows = await query(
     `WITH eligible_countries AS (
        SELECT cc.id AS country_catalog_id,
@@ -102,6 +104,7 @@ async function saveQuotas(competitionId, quotas, connection) {
 }
 
 async function eligibleNationalProfiles() {
+  await refreshNationalPerformanceRanks();
   return query(
     `SELECT p.id AS player_id,p.full_name,p.photo_url,p.position,
             c.name AS current_club_name,np.country_catalog_id,
@@ -153,9 +156,9 @@ async function tournamentPayload(competitionId) {
     query('SELECT * FROM national_cup_rounds WHERE competition_id=? ORDER BY round_order', [competitionId]),
     query(
       `SELECT m.*,r.round_code,r.round_name,r.round_order,
-              he.country_name AS home_country_name,he.country_code AS home_country_code,he.flag_url AS home_flag_url,
+              he.country_name AS home_country_name,he.country_code AS home_country_code,he.flag_url AS home_flag_url,he.seed_rank AS home_seed_rank,
               hp.full_name AS home_player_name,
-              ae.country_name AS away_country_name,ae.country_code AS away_country_code,ae.flag_url AS away_flag_url,
+              ae.country_name AS away_country_name,ae.country_code AS away_country_code,ae.flag_url AS away_flag_url,ae.seed_rank AS away_seed_rank,
               ap.full_name AS away_player_name,
               we.country_name AS winner_country_name,wp.full_name AS winner_player_name
        FROM national_cup_matches m JOIN national_cup_rounds r ON r.id=m.round_id
@@ -437,12 +440,9 @@ router.put('/competitions/:id/national-tournament/entries', authenticate, requir
   if (!Array.isArray(req.body.entries)) throw new ApiError(400, 'entries phải là một danh sách.');
   if (req.body.entries.length > 32) throw new ApiError(400, 'Giải chỉ nhận tối đa 32 quốc gia.');
   const normalized = req.body.entries.map((entry, index) => ({
-    playerId: parsePositiveInt(entry.player_id, `entries[${index}].player_id`),
-    seedRank: entry.seed_rank ? parsePositiveInt(entry.seed_rank, `entries[${index}].seed_rank`, { max: 999 }) : null
+    playerId: parsePositiveInt(entry.player_id, `entries[${index}].player_id`)
   }));
   if (new Set(normalized.map((item) => item.playerId)).size !== normalized.length) throw new ApiError(400, 'Một cầu thủ bị chọn nhiều lần.');
-  const seeds = normalized.map((item) => item.seedRank).filter(Boolean);
-  if (new Set(seeds).size !== seeds.length) throw new ApiError(400, 'Thứ hạng hạt giống không được trùng nhau.');
 
   await transaction(async (connection) => {
     const entries = [];
@@ -467,9 +467,11 @@ router.put('/competitions/:id/national-tournament/entries', authenticate, requir
     if (new Set(entries.map((item) => Number(item.countryCatalogId))).size !== entries.length) {
       throw new ApiError(400, 'Mỗi quốc gia chỉ được có một cầu thủ đại diện trong giải.');
     }
+    const performanceRows = await refreshNationalPerformanceRanks(connection);
+    const seededEntries = assignNationalTournamentSeeds(entries, performanceRows);
     const quotas = await query('SELECT * FROM national_cup_confederation_quotas WHERE competition_id=?', [competitionId], connection);
     const quotaByConfederation = new Map(quotas.map((quota) => [quota.confederation, quota]));
-    for (const entry of entries) {
+    for (const entry of seededEntries) {
       if (!quotaByConfederation.has(entry.confederation)) {
         throw new ApiError(400, `${entry.confederation} không có suất hợp lệ trong lần phân bổ hiện tại.`);
       }
@@ -479,7 +481,7 @@ router.put('/competitions/:id/national-tournament/entries', authenticate, requir
       if (selected > Number(quota.slot_count)) throw new ApiError(400, `${quota.confederation} chỉ có ${quota.slot_count} suất.`);
     }
     await query('DELETE FROM national_cup_entries WHERE competition_id=?', [competitionId], connection);
-    for (const entry of entries) {
+    for (const entry of seededEntries) {
       await query(
         `INSERT INTO national_cup_entries(
            competition_id,player_id,country_catalog_id,country_name,country_code,flag_url,confederation,seed_rank
@@ -528,7 +530,7 @@ router.post('/competitions/:id/national-tournament/draw', authenticate, requireA
     await query("UPDATE competitions SET status='KNOCKOUT_STAGE' WHERE id=?", [competitionId], connection);
   });
   return ok(res, {
-    message: `Đã tạo nhánh 32 đội${draw.used_seeding ? ` với ${draw.explicit_seed_count} hạt giống khai báo` : ' theo chế độ ngẫu nhiên'}.`,
+    message: `Đã tạo nhánh 32 đội${draw.used_seeding ? ` với ${draw.explicit_seed_count} hạt giống tự động theo thành tích` : ' theo chế độ ngẫu nhiên'}.`,
     warning: draw.warning, sameConfederationMatches: draw.same_confederation_matches
   });
 });

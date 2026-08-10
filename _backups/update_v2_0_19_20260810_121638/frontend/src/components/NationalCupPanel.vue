@@ -89,11 +89,6 @@ const selectionIssues = computed(() => {
     issues.push(
       `Có ${unsupported.length} đại diện không thuộc 6 châu lục hợp lệ. Hãy xóa trước khi lưu hoặc tính lại suất.`,
     );
-  const seeds = entryDrafts.value
-    .map((entry) => (entry.seed_rank ? Number(entry.seed_rank) : null))
-    .filter(Boolean);
-  if (new Set(seeds).size !== seeds.length)
-    issues.push("Thứ hạng hạt giống đang bị trùng.");
   for (const quota of data.value?.quotas || []) {
     const selected = entryDrafts.value.filter(
       (entry) => entry.confederation === quota.confederation,
@@ -319,7 +314,7 @@ function addProfile(profile) {
     country_code: profile.country_code,
     flag_url: profile.flag_url,
     confederation: profile.confederation,
-    seed_rank: profile.world_seed_rank || null,
+    seed_rank: null,
   });
   const nowUsed = used + 1;
   if (nowUsed === Number(quota.slot_count)) {
@@ -349,10 +344,7 @@ async function saveEntries() {
     await api.put(
       `/competitions/${props.competitionId}/national-tournament/entries`,
       {
-        entries: entryDrafts.value.map((entry) => ({
-          player_id: entry.player_id,
-          seed_rank: entry.seed_rank || null,
-        })),
+        entries: entryDrafts.value.map((entry) => ({ player_id: entry.player_id })),
       },
     );
     uiStore.notify(`Đã lưu ${entryDrafts.value.length}/32 đại diện.`);
@@ -769,18 +761,8 @@ async function resetTournament() {
                 {{ entry.current_club_name || "Cầu thủ tự do" }}</small
               >
             </div>
-            <label v-if="admin && !data.profile.entries_locked_at"
-              ><small>Hạt giống</small
-              ><input
-                v-model.number="entry.seed_rank"
-                type="number"
-                min="1"
-                max="999"
-                class="input"
-                placeholder="—" /></label
-            ><em v-else>{{
-              entry.seed_rank ? `#${entry.seed_rank}` : "Không hạt giống"
-            }}</em
+            <span v-if="entry.seed_rank" class="seed-corner" :title="`Hạt giống số ${entry.seed_rank} theo thành tích quốc gia`">S{{ entry.seed_rank }}</span>
+            <em v-else class="auto-seed-text">Tự xếp khi lưu</em
             ><button
               v-if="admin && !data.profile.entries_locked_at"
               class="remove"
@@ -888,8 +870,8 @@ async function resetTournament() {
                 >{{ confederationInfo(profile.confederation).name }} ·
                 {{
                   profile.world_seed_rank
-                    ? `hạt giống #${profile.world_seed_rank}`
-                    : "chưa xếp hạt giống"
+                    ? `hạng thành tích #${profile.world_seed_rank}`
+                    : "chưa có thành tích"
                 }}</em
               >
               <span
@@ -953,13 +935,13 @@ async function resetTournament() {
           >
             <div>
               <span
-                ><b>{{ match.home_country_name || "Chờ xác định" }}</b
+                ><b><i v-if="match.home_seed_rank" class="inline-seed">S{{ match.home_seed_rank }}</i>{{ match.home_country_name || "Chờ xác định" }}</b
                 ><small>{{ match.home_player_name || "—" }}</small></span
               ><strong>{{ match.home_score ?? "–" }}</strong>
             </div>
             <div>
               <span
-                ><b>{{ match.away_country_name || "Chờ xác định" }}</b
+                ><b><i v-if="match.away_seed_rank" class="inline-seed">S{{ match.away_seed_rank }}</i>{{ match.away_country_name || "Chờ xác định" }}</b
                 ><small>{{ match.away_player_name || "—" }}</small></span
               ><strong>{{ match.away_score ?? "–" }}</strong>
             </div>
@@ -1540,6 +1522,7 @@ async function resetTournament() {
 }
 .entry-grid > article {
   position: relative;
+  position: relative;
   display: grid;
   grid-template-columns: auto 1fr 78px auto;
   align-items: center;
@@ -1548,6 +1531,39 @@ async function resetTournament() {
   border: 1px solid var(--line);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.02);
+}
+.seed-corner {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  min-width: 27px;
+  height: 21px;
+  padding: 0 6px;
+  border: 1px solid rgba(255, 216, 102, 0.48);
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  color: #ffe27c;
+  background: linear-gradient(145deg, rgba(109, 79, 15, 0.92), rgba(32, 24, 8, 0.94));
+  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.24);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+.auto-seed-text { color: var(--muted); font-size: 9px; }
+.inline-seed {
+  display: inline-grid;
+  place-items: center;
+  min-width: 23px;
+  height: 18px;
+  margin-right: 6px;
+  border-radius: 6px;
+  color: #191100;
+  background: linear-gradient(135deg, #ffe27c, #dca52d);
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 900;
+  vertical-align: middle;
 }
 .flag {
   width: 43px;

@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.0.20 — Smart Season Presets & Automatic Seeds
+
+- Tự lấy lại logo và thông số từ mùa gần nhất của cùng hệ giải; không tự sao chép tên, mùa hoặc ngày thi đấu.
+- Giữ lại cấu hình riêng theo loại giải: CLB, World Cup 48 và giải quốc gia đặc biệt 32.
+- Bỏ toàn bộ ô nhập hạt giống thủ công khỏi luồng quản lý giải.
+- Tự chọn tối đa 8 hạt giống cho giải quốc gia theo huy chương, điểm và danh hiệu quốc gia.
+- Tự chọn tối đa 4 hạt giống cho giải CLB theo điểm và thành tích CLB.
+- Hiển thị huy hiệu S1–S8 hoặc S1–S4 trên danh sách đội, bảng đấu và nhánh đấu.
+- Bảo vệ 8 hạt giống quốc gia và 4 hạt giống CLB khỏi gặp nhau sớm khi số đội cho phép.
+
 ## 2.0.19 — Database-based National 32 Quotas
 
 - Chỉ sửa cơ chế phân bổ và giao diện chọn đội của giải đặc biệt knockout 32 quốc gia.
