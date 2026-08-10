@@ -32,7 +32,6 @@ const {
 const { finalizeCompetitionAwards } = require('./smart-awards');
 const { finalizeAllCompetitionMatchRatings, finalizeCompetitionPerformance } = require('./performance-engine');
 const { recalculateClubInfluence } = require('./routes-influence');
-const { recalculateClubSeeds } = require('./automatic-seeding');
 
 const router = express.Router();
 
@@ -132,78 +131,6 @@ router.patch('/competition-series/:id', authenticate, requireAdmin, async (req, 
   const result = await query(`UPDATE competition_series SET ${update.sql} WHERE id = ?`, [...update.values, id]);
   if (!result.affectedRows) throw new ApiError(404, 'Không tìm thấy hệ giải.');
   return ok(res, await first('SELECT * FROM competition_series WHERE id = ?', [id]));
-});
-
-router.get('/competition-series/:id/creation-preset', authenticate, requireAdmin, async (req, res) => {
-  const seriesId = parsePositiveInt(req.params.id);
-  const mode = parseEnum(req.query.competition_mode || 'CLUB', ['CLUB', 'WORLD_CUP_48', 'NATIONAL_SPECIAL_32'], 'competition_mode');
-  const source = await first(
-    `SELECT c.*,s.name AS source_season_name,
-            wcp.draw_mode AS world_draw_mode,wcp.pairing_mode,wcp.visual_theme AS world_visual_theme,
-            wcp.gold_prize_amount,wcp.silver_prize_amount,wcp.bronze_prize_amount,
-            wcp.champion_upset_points,wcp.runnerup_upset_points,
-            ncp.draw_mode AS national_draw_mode,ncp.visual_theme AS national_visual_theme
-     FROM competitions c
-     JOIN seasons s ON s.id=c.season_id
-     LEFT JOIN world_cup_profiles wcp ON wcp.competition_id=c.id
-     LEFT JOIN national_cup_profiles ncp ON ncp.competition_id=c.id
-     WHERE c.series_id=? AND (
-       (?='CLUB' AND wcp.competition_id IS NULL AND ncp.competition_id IS NULL)
-       OR (?='WORLD_CUP_48' AND wcp.competition_id IS NOT NULL)
-       OR (?='NATIONAL_SPECIAL_32' AND ncp.competition_id IS NOT NULL)
-     )
-     ORDER BY s.sequence_no DESC,c.created_at DESC LIMIT 1`,
-    [seriesId, mode, mode, mode]
-  );
-  if (!source) return ok(res, null);
-
-  const preset = {
-    source_competition_id: source.id,
-    source_competition_name: source.name,
-    source_season_name: source.source_season_name,
-    logo_url: source.logo_url || '',
-    coefficient: source.coefficient,
-    format_type: source.format_type,
-    entry_fee: source.entry_fee,
-    group_count: source.group_count,
-    teams_per_group: source.teams_per_group,
-    advance_per_group: source.advance_per_group,
-    best_third_count: source.best_third_count,
-    group_leg_mode: source.group_leg_mode,
-    knockout_size: source.knockout_size,
-    third_place_mode: source.third_place_mode
-  };
-  if (mode === 'WORLD_CUP_48') {
-    Object.assign(preset, {
-      draw_mode: source.world_draw_mode,
-      pairing_mode: source.pairing_mode,
-      visual_theme: source.world_visual_theme,
-      gold_prize_amount: source.gold_prize_amount,
-      silver_prize_amount: source.silver_prize_amount,
-      bronze_prize_amount: source.bronze_prize_amount,
-      champion_upset_points: source.champion_upset_points,
-      runnerup_upset_points: source.runnerup_upset_points
-    });
-  }
-  if (mode === 'NATIONAL_SPECIAL_32') {
-    const rewards = await query(
-      'SELECT placement_from,placement_to,prize_amount FROM national_competition_reward_rules WHERE competition_id=?',
-      [source.id]
-    );
-    const prize = (from, to = from) => rewards.find((row) => Number(row.placement_from) === from && Number(row.placement_to) === to)?.prize_amount || 0;
-    Object.assign(preset, {
-      draw_mode: source.national_draw_mode,
-      visual_theme: source.national_visual_theme,
-      gold_prize_amount: prize(1),
-      silver_prize_amount: prize(2),
-      bronze_prize_amount: prize(3),
-      fourth_prize_amount: prize(4),
-      quarterfinal_prize_amount: prize(5, 8),
-      round16_prize_amount: prize(9, 16),
-      round32_prize_amount: prize(17, 32)
-    });
-  }
-  return ok(res, preset);
 });
 
 /* ========================================================================== */
@@ -375,6 +302,7 @@ router.post('/competitions/:id/participants', authenticate, requireClubOrAdmin, 
   }
   let clubId = parsePositiveInt(req.body.club_id, 'club_id');
   if (req.user.accountType === 'CLUB') clubId = req.user.clubId;
+  const seedNo = req.body.seed_no ? parsePositiveInt(req.body.seed_no, 'seed_no') : null;
   // CLB tự đăng ký sẽ ở trạng thái chờ FIFA duyệt. Khi Admin FIFA trực tiếp
   // thêm CLB vào giải, CLB được duyệt ngay để hệ thống có thể đồng bộ đội hình.
   const status = req.user.accountType === 'CLUB'
@@ -385,7 +313,7 @@ router.post('/competitions/:id/participants', authenticate, requireClubOrAdmin, 
     const result = await query(
       `INSERT INTO competition_participants(competition_id, club_id, seed_no, registration_status)
        VALUES (?, ?, ?, ?)`,
-      [competitionId, clubId, null, status],
+      [competitionId, clubId, seedNo, status],
       connection
     );
 
@@ -410,7 +338,6 @@ router.post('/competitions/:id/participants', authenticate, requireClubOrAdmin, 
       details: { competition_id: competitionId, club_id: clubId, automatic_roster: true }
     }, connection);
 
-    if (status === 'APPROVED') await recalculateClubSeeds(competitionId, connection);
     return { participantId: result.insertId, rosterSync };
   });
 
@@ -424,6 +351,7 @@ router.post('/competitions/:id/participants', authenticate, requireClubOrAdmin, 
 router.patch('/competition-participants/:id', authenticate, requireAdmin, async (req, res) => {
   const participantId = parsePositiveInt(req.params.id);
   const status = parseEnum(req.body.registration_status, PARTICIPANT_STATUSES, 'registration_status');
+  const seedNo = req.body.seed_no === undefined ? undefined : (req.body.seed_no ? parsePositiveInt(req.body.seed_no, 'seed_no') : null);
 
   await transaction(async (connection) => {
     const participant = await first(
@@ -450,7 +378,11 @@ router.patch('/competition-participants/:id', authenticate, requireAdmin, async 
       }
     }
 
-    await query('UPDATE competition_participants SET registration_status=? WHERE id=?', [status, participantId], connection);
+    const fields = ['registration_status = ?'];
+    const params = [status];
+    if (seedNo !== undefined) { fields.push('seed_no = ?'); params.push(seedNo); }
+    params.push(participantId);
+    await query(`UPDATE competition_participants SET ${fields.join(', ')} WHERE id = ?`, params, connection);
     if (status === 'APPROVED') {
       await syncClubRosterForCompetition({
         competitionId: Number(participant.competition_id),
@@ -460,8 +392,7 @@ router.patch('/competition-participants/:id', authenticate, requireAdmin, async 
         connection
       });
     }
-    await recalculateClubSeeds(participant.competition_id, connection);
-    await audit({ userId: req.user.id, actionCode: 'UPDATE_COMPETITION_PARTICIPANT', entityTable: 'competition_participants', entityId: participantId, details: { status, automatic_seeding: true, automatic_roster: status === 'APPROVED' } }, connection);
+    await audit({ userId: req.user.id, actionCode: 'UPDATE_COMPETITION_PARTICIPANT', entityTable: 'competition_participants', entityId: participantId, details: { status, seed_no: seedNo, automatic_roster: status === 'APPROVED' } }, connection);
   });
 
   return ok(res, await first('SELECT * FROM competition_participants WHERE id = ?', [participantId]));
@@ -582,13 +513,7 @@ router.get('/competitions/:id/groups', optionalAuthenticate, async (req, res) =>
      FROM competition_group_members gm JOIN competition_groups g ON g.id = gm.group_id JOIN clubs c ON c.id = gm.club_id
      WHERE g.competition_id = ? ORDER BY g.display_order, gm.slot_no`, [competitionId]
   );
-  const standings = await query(
-    `SELECT standings.*,cp.seed_no
-     FROM v_group_standings standings
-     LEFT JOIN competition_participants cp ON cp.competition_id=standings.competition_id AND cp.club_id=standings.club_id
-     WHERE standings.competition_id=? ORDER BY standings.group_id,standings.group_rank`,
-    [competitionId]
-  );
+  const standings = await query('SELECT * FROM v_group_standings WHERE competition_id = ? ORDER BY group_id, group_rank', [competitionId]);
   return ok(res, { groups, members, standings });
 });
 
@@ -660,12 +585,10 @@ router.get('/competitions/:id/bracket', async (req, res) => {
   const competitionId = parsePositiveInt(req.params.id);
   const [rounds, matches, links, qualified, pairingRules] = await Promise.all([
     query('SELECT * FROM competition_rounds WHERE competition_id = ? ORDER BY round_order', [competitionId]),
-    query(`SELECT m.*, hc.name AS home_club_name, hc.logo_url AS home_logo,hp.seed_no AS home_seed_no,
-                  ac.name AS away_club_name, ac.logo_url AS away_logo,ap.seed_no AS away_seed_no,
+    query(`SELECT m.*, hc.name AS home_club_name, hc.logo_url AS home_logo,
+                  ac.name AS away_club_name, ac.logo_url AS away_logo,
                   wc.name AS winner_club_name, lc.name AS loser_club_name
            FROM matches m LEFT JOIN clubs hc ON hc.id = m.home_club_id LEFT JOIN clubs ac ON ac.id = m.away_club_id
-           LEFT JOIN competition_participants hp ON hp.competition_id=m.competition_id AND hp.club_id=m.home_club_id
-           LEFT JOIN competition_participants ap ON ap.competition_id=m.competition_id AND ap.club_id=m.away_club_id
            LEFT JOIN clubs wc ON wc.id = m.winner_club_id LEFT JOIN clubs lc ON lc.id = m.loser_club_id
            WHERE m.competition_id = ? AND m.stage_type = 'KNOCKOUT'
            ORDER BY m.round_id, m.match_no, m.leg_no`, [competitionId]),
@@ -760,19 +683,9 @@ router.post('/competitions/:id/bracket/seed-participants', authenticate, require
     if (!Array.isArray(req.body.club_ids)) throw new ApiError(400, 'club_ids là bắt buộc cho MANUAL_ORDER.');
     clubIds = req.body.club_ids.map((id) => parsePositiveInt(id, 'club_id'));
   } else {
-    await recalculateClubSeeds(competitionId);
-    const participants = await query(`SELECT club_id,seed_no FROM competition_participants WHERE competition_id = ? AND registration_status = 'APPROVED' ORDER BY seed_no IS NULL, seed_no, id`, [competitionId]);
-    if (mode === 'RANDOM') {
-      clubIds = shuffle(participants.map((item) => Number(item.club_id)));
-    } else {
-      const seeds = participants.filter((item) => item.seed_no).map((item) => Number(item.club_id));
-      const remaining = participants.filter((item) => !item.seed_no).map((item) => Number(item.club_id));
-      const pairs = [];
-      while (seeds.length && remaining.length) pairs.push([seeds.shift(), remaining.pop()]);
-      const leftovers = [...seeds, ...remaining];
-      while (leftovers.length) pairs.push([leftovers.shift(), leftovers.pop()]);
-      clubIds = pairs.flat().filter(Boolean);
-    }
+    const participants = await query(`SELECT club_id FROM competition_participants WHERE competition_id = ? AND registration_status = 'APPROVED' ORDER BY seed_no IS NULL, seed_no, id`, [competitionId]);
+    clubIds = participants.map((item) => Number(item.club_id));
+    if (mode === 'RANDOM') clubIds = shuffle(clubIds);
   }
   if (clubIds.length !== Number(firstRound.team_count)) throw new ApiError(400, `Vòng đầu cần đúng ${firstRound.team_count} đội nhưng nhận ${clubIds.length}.`);
   if (new Set(clubIds).size !== clubIds.length) throw new ApiError(400, 'Danh sách có CLB trùng nhau.');
@@ -811,14 +724,12 @@ router.get('/competitions/:id/matches', async (req, res) => {
   if (stage) { extra = 'AND m.stage_type = ?'; params.push(stage); }
   return ok(res, await query(
     `SELECT m.*, g.group_code, r.round_name, r.round_order,
-            hc.name AS home_club_name, hc.logo_url AS home_logo,hp.seed_no AS home_seed_no,
-            ac.name AS away_club_name, ac.logo_url AS away_logo,ap.seed_no AS away_seed_no,
+            hc.name AS home_club_name, hc.logo_url AS home_logo,
+            ac.name AS away_club_name, ac.logo_url AS away_logo,
             wc.name AS winner_club_name, lc.name AS loser_club_name
      FROM matches m LEFT JOIN competition_groups g ON g.id = m.group_id
      LEFT JOIN competition_rounds r ON r.id = m.round_id
      LEFT JOIN clubs hc ON hc.id = m.home_club_id LEFT JOIN clubs ac ON ac.id = m.away_club_id
-     LEFT JOIN competition_participants hp ON hp.competition_id=m.competition_id AND hp.club_id=m.home_club_id
-     LEFT JOIN competition_participants ap ON ap.competition_id=m.competition_id AND ap.club_id=m.away_club_id
      LEFT JOIN clubs wc ON wc.id = m.winner_club_id LEFT JOIN clubs lc ON lc.id = m.loser_club_id
      WHERE m.competition_id = ? ${extra}
      ORDER BY m.stage_type, COALESCE(g.display_order, r.round_order), m.match_no, m.leg_no`, params

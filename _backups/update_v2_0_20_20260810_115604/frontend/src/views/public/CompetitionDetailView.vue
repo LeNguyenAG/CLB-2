@@ -163,8 +163,7 @@ onMounted(load);
               ><EntityAvatar :src="p.logo_url" :name="p.club_name" :size="42" />
               <div>
                 <b>{{ p.club_name }}</b>
-                <p v-if="p.seed_no"><span class="seed-badge">S{{ p.seed_no }}</span> Hạt giống theo thành tích</p>
-                <p v-else>Không thuộc top 4 hạt giống</p>
+                <p>Hạt giống {{ p.seed_no || "—" }}</p>
               </div>
               <StatusBadge :status="p.registration_status"
             /></RouterLink>
@@ -422,18 +421,6 @@ onMounted(load);
 .participant p,
 .result-list p {
   font-size: 11px;
-}
-.seed-badge {
-  display: inline-grid;
-  place-items: center;
-  min-width: 24px;
-  height: 18px;
-  margin-right: 4px;
-  border-radius: 6px;
-  color: #191100;
-  background: linear-gradient(135deg, #ffe27c, #dca52d);
-  font-size: 8px;
-  font-weight: 900;
 }
 .result-list article {
   display: grid;

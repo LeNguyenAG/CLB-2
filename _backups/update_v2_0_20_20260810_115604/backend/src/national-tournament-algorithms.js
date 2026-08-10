@@ -2,7 +2,7 @@
 
 const crypto = require('crypto');
 
-const CONFEDERATION_ORDER = ['AFC', 'CAF', 'CONCACAF', 'CONMEBOL', 'OFC', 'UEFA'];
+const CONFEDERATION_ORDER = ['AFC', 'CAF', 'CONCACAF', 'CONMEBOL', 'OFC', 'UEFA', 'OTHER'];
 
 function shuffle(items) {
   const copy = [...items];
@@ -20,16 +20,17 @@ function allocateConfederationQuotas(rows, slotCount = 32) {
     .map((confederation) => {
       const confederationRows = sourceRows.filter((row) => row.confederation === confederation);
       const sum = (field) => confederationRows.reduce((total, row) => total + Math.max(0, Number(row[field] || 0)), 0);
-      const availableCountryCount = Math.floor(sum('available_country_count'));
+      const worldPoints = sum('world_cup_strength_points');
+      const nationalPoints = sum('national_cup_strength_points');
+      const declaredHistoricalPoints = sum('historical_strength_points');
       return {
         confederation,
-        available_country_count: availableCountryCount,
-        strong_country_count: Math.min(availableCountryCount, Math.floor(sum('strong_country_count'))),
-        world_cup_strength_points: 0,
-        national_cup_strength_points: 0,
-        historical_strength_points: 0,
-        championship_count: 0,
-        medal_count: 0
+        available_country_count: Math.floor(sum('available_country_count')),
+        world_cup_strength_points: worldPoints,
+        national_cup_strength_points: nationalPoints,
+        historical_strength_points: worldPoints + nationalPoints || declaredHistoricalPoints,
+        championship_count: Math.floor(sum('championship_count')),
+        medal_count: Math.floor(sum('medal_count'))
       };
     })
     .filter((row) => row.available_country_count > 0);
@@ -40,19 +41,31 @@ function allocateConfederationQuotas(rows, slotCount = 32) {
   }
   if (slotCount < normalized.length) throw new Error('Số suất nhỏ hơn số liên đoàn đang có quốc gia.');
 
-  const strongCountryTotal = normalized.reduce((sum, row) => sum + row.strong_country_count, 0);
+  // Căn bậc hai tạo hiệu ứng lợi suất giảm dần: thành tích vẫn tạo ưu thế,
+  // nhưng một châu lục có lịch sử quá mạnh không thể nuốt hết suất của nơi khác.
+  const strengthIndexTotal = normalized.reduce(
+    (sum, row) => sum + Math.sqrt(row.historical_strength_points), 0
+  );
   const quotas = normalized.map((row) => {
     const availabilityShare = row.available_country_count / availableTotal;
-    const strengthShare = strongCountryTotal > 0
-      ? row.strong_country_count / strongCountryTotal
+    const strengthIndex = Math.sqrt(row.historical_strength_points);
+    const strengthShare = strengthIndexTotal > 0
+      ? strengthIndex / strengthIndexTotal
       : availabilityShare;
-    // 60% phản ánh số quốc gia thực có trong DB; 40% phản ánh số quốc gia
-    // nằm trong nhóm xếp hạng mạnh hiện tại. Không dùng hạn ngạch ngoài đời.
-    const allocationWeight = availabilityShare * 0.6 + strengthShare * 0.4;
+    // Quy mô quyết định 80%; World Cup và huy chương giải quốc gia quyết định 20%.
+    const allocationWeight = availabilityShare * 0.8 + strengthShare * 0.2;
     const proportionalTarget = availabilityShare * slotCount;
     const weightedTarget = allocationWeight * slotCount;
-    const minimumSlots = 1;
-    const maximumSlots = row.available_country_count;
+    // Thành tích chỉ được dịch chuyển trong biên hợp lý quanh tỷ lệ số quốc gia.
+    // Biên này ngăn châu lục nhỏ lấy suất vô lý, đồng thời vẫn thưởng khu vực mạnh.
+    const minimumSlots = Math.min(
+      row.available_country_count,
+      Math.max(1, Math.floor(proportionalTarget - 1))
+    );
+    const maximumSlots = Math.min(
+      row.available_country_count,
+      Math.max(minimumSlots, Math.ceil(proportionalTarget + 1))
+    );
     const initial = Math.min(maximumSlots, Math.max(minimumSlots, Math.floor(weightedTarget)));
     return {
       ...row,
@@ -67,13 +80,27 @@ function allocateConfederationQuotas(rows, slotCount = 32) {
     };
   });
 
+  // Trường hợp dữ liệu rất lệch, nới biên từng bước nhưng tuyệt đối không vượt
+  // số quốc gia có thể chọn. Với dữ liệu thông thường nhánh này không được dùng.
+  let maximumTotal = quotas.reduce((sum, row) => sum + row.maximum_slot_count, 0);
+  while (maximumTotal < slotCount) {
+    const candidate = [...quotas]
+      .filter((row) => row.maximum_slot_count < row.available_country_count)
+      .sort((a, b) => (b.proportional_slot_target - b.maximum_slot_count)
+        - (a.proportional_slot_target - a.maximum_slot_count)
+        || b.historical_strength_points - a.historical_strength_points
+        || CONFEDERATION_ORDER.indexOf(a.confederation) - CONFEDERATION_ORDER.indexOf(b.confederation))[0];
+    if (!candidate) throw new Error('Không đủ quốc gia khả dụng để mở rộng hạn ngạch.');
+    candidate.maximum_slot_count += 1;
+    maximumTotal += 1;
+  }
+
   let assigned = quotas.reduce((sum, row) => sum + row.slot_count, 0);
-  // Hamilton có giới hạn sức chứa: cấp các suất còn thiếu theo phần dư lớn nhất.
   while (assigned < slotCount) {
     const candidate = [...quotas]
       .filter((row) => row.slot_count < row.maximum_slot_count)
       .sort((a, b) => (b.weighted_slot_target - b.slot_count) - (a.weighted_slot_target - a.slot_count)
-      || b.strong_country_count - a.strong_country_count
+      || b.historical_strength_points - a.historical_strength_points
       || b.available_country_count - a.available_country_count
       || CONFEDERATION_ORDER.indexOf(a.confederation) - CONFEDERATION_ORDER.indexOf(b.confederation))[0];
     if (!candidate) throw new Error('Không đủ quốc gia khả dụng để phân bổ đủ số suất.');
@@ -83,7 +110,7 @@ function allocateConfederationQuotas(rows, slotCount = 32) {
   while (assigned > slotCount) {
     const candidate = [...quotas].filter((row) => row.slot_count > row.minimum_slot_count)
       .sort((a, b) => (b.slot_count - b.weighted_slot_target) - (a.slot_count - a.weighted_slot_target)
-        || a.strong_country_count - b.strong_country_count
+        || a.historical_strength_points - b.historical_strength_points
         || b.slot_count - a.slot_count
         || CONFEDERATION_ORDER.indexOf(b.confederation) - CONFEDERATION_ORDER.indexOf(a.confederation))[0];
     if (!candidate) throw new Error('Không thể cân bằng đủ số suất liên đoàn.');
@@ -112,8 +139,10 @@ function drawNationalKnockout(entries, mode = 'SEEDED_CONSTRAINED') {
   const explicitSeeds = entries.filter((entry) => Number(entry.seed_rank) > 0)
     .sort((a, b) => Number(a.seed_rank) - Number(b.seed_rank) || Number(a.id) - Number(b.id));
   const useSeeds = mode === 'SEEDED_CONSTRAINED' && explicitSeeds.length > 0;
-  const rankedIds = new Set(explicitSeeds.slice(0, 8).map((entry) => Number(entry.id)));
-  const seeded = useSeeds ? explicitSeeds.slice(0, 8) : [];
+  const rankedIds = new Set(explicitSeeds.slice(0, 16).map((entry) => Number(entry.id)));
+  const fillSeeds = shuffle(entries.filter((entry) => !rankedIds.has(Number(entry.id))))
+    .slice(0, Math.max(0, 16 - rankedIds.size));
+  const seeded = useSeeds ? [...explicitSeeds.slice(0, 16), ...fillSeeds] : [];
   const seededIds = new Set(seeded.map((entry) => Number(entry.id)));
   const unseeded = useSeeds ? entries.filter((entry) => !seededIds.has(Number(entry.id))) : [];
 
@@ -128,12 +157,6 @@ function drawNationalKnockout(entries, mode = 'SEEDED_CONSTRAINED') {
         const differentIndex = remaining.findIndex((entry) => entry.confederation !== seed.confederation);
         const index = differentIndex >= 0 ? differentIndex : 0;
         pairs.push([seed, remaining.splice(index, 1)[0]]);
-      }
-      while (remaining.length) {
-        const home = remaining.shift();
-        const differentIndex = remaining.findIndex((entry) => entry.confederation !== home.confederation);
-        const index = differentIndex >= 0 ? differentIndex : 0;
-        pairs.push([home, remaining.splice(index, 1)[0]]);
       }
     } else {
       const remaining = shuffle(entries);
@@ -155,11 +178,8 @@ function drawNationalKnockout(entries, mode = 'SEEDED_CONSTRAINED') {
   if (useSeeds) {
     bestPairs.sort((a, b) => Number(a[0].seed_rank || 9999) - Number(b[0].seed_rank || 9999)
       || Number(a[0].id) - Number(b[0].id));
-    const seedPairs = bestPairs.filter((pair) => Number(pair[0].seed_rank) > 0 && Number(pair[0].seed_rank) <= 8)
-      .sort((a, b) => Number(a[0].seed_rank) - Number(b[0].seed_rank));
-    const otherPairs = bestPairs.filter((pair) => !(Number(pair[0].seed_rank) > 0 && Number(pair[0].seed_rank) <= 8));
-    const seedOrder = [0, 7, 3, 4, 1, 6, 2, 5];
-    bestPairs = seedOrder.flatMap((index) => [seedPairs[index], otherPairs.shift()]).filter(Boolean);
+    const bracketOrder = [0, 15, 7, 8, 3, 12, 4, 11, 1, 14, 6, 9, 2, 13, 5, 10];
+    bestPairs = bracketOrder.map((index) => bestPairs[index]);
   } else {
     bestPairs = shuffle(bestPairs);
   }
@@ -167,7 +187,7 @@ function drawNationalKnockout(entries, mode = 'SEEDED_CONSTRAINED') {
   return {
     pairs: bestPairs,
     used_seeding: useSeeds,
-    explicit_seed_count: seeded.length,
+    explicit_seed_count: explicitSeeds.length,
     same_confederation_matches: bestPenalty,
     warning: bestPenalty > 0
       ? `Không thể tránh hoàn toàn các cặp cùng liên đoàn; còn ${bestPenalty} cặp ở vòng 32 đội.`

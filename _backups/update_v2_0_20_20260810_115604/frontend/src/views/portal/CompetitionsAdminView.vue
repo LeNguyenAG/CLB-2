@@ -23,11 +23,8 @@ const meta = ref({ page: 1, limit: 18, total: 0 });
 const filters = ref({ season_id: "", status: "", format_type: "" });
 const modal = ref("");
 const form = ref({});
-const presetInfo = ref(null);
-const loadingPreset = ref(false);
 
 function resetCompetition() {
-  presetInfo.value = null;
   form.value = {
     competition_mode: "CLUB",
     series_id: "",
@@ -111,40 +108,6 @@ function applyModeDefaults() {
   } else {
     form.value.coefficient = "1.000";
   }
-}
-async function loadCreationPreset() {
-  presetInfo.value = null;
-  if (!form.value.series_id) return;
-  loadingPreset.value = true;
-  try {
-    const response = await api.get(
-      `/competition-series/${form.value.series_id}/creation-preset`,
-      { competition_mode: form.value.competition_mode },
-    );
-    const preset = response.data;
-    if (!preset) return;
-    const reusableFields = [
-      "logo_url", "coefficient", "format_type", "entry_fee", "group_count",
-      "teams_per_group", "advance_per_group", "best_third_count", "group_leg_mode",
-      "knockout_size", "third_place_mode", "draw_mode", "pairing_mode", "visual_theme",
-      "gold_prize_amount", "silver_prize_amount", "bronze_prize_amount",
-      "fourth_prize_amount", "quarterfinal_prize_amount", "round16_prize_amount",
-      "round32_prize_amount", "champion_upset_points", "runnerup_upset_points",
-    ];
-    for (const field of reusableFields) {
-      if (preset[field] !== undefined && preset[field] !== null)
-        form.value[field] = preset[field];
-    }
-    presetInfo.value = preset;
-  } catch (error) {
-    uiStore.notify(error.message, "error");
-  } finally {
-    loadingPreset.value = false;
-  }
-}
-async function handleModeChange() {
-  applyModeDefaults();
-  await loadCreationPreset();
 }
 async function createCompetition() {
   busy.value = true;
@@ -312,7 +275,7 @@ function modeLabel(item) {
           ><select
             v-model="form.competition_mode"
             class="select"
-            @change="handleModeChange"
+            @change="applyModeDefaults"
           >
             <option value="CLUB">Giải CLB thông thường</option>
             <option value="WORLD_CUP_48">World Cup · 48 quốc gia</option>
@@ -343,19 +306,13 @@ function modeLabel(item) {
         </div>
         <label
           ><span class="label">Hệ giải</span
-          ><select v-model="form.series_id" class="select" required @change="loadCreationPreset">
+          ><select v-model="form.series_id" class="select" required>
             <option value="">Chọn hệ giải</option>
             <option v-for="item in series" :key="item.id" :value="item.id">
               {{ item.name }}
             </option>
           </select></label
         >
-        <div v-if="presetInfo" class="full inherited-preset">
-          <EntityAvatar :src="form.logo_url" :name="presetInfo.source_competition_name" :size="42" />
-          <span><b>Đã dùng lại cấu hình mùa trước</b><small>{{ presetInfo.source_competition_name }} · {{ presetInfo.source_season_name }}</small></span>
-          <em>Logo và thông số đã tự điền</em>
-        </div>
-        <div v-else-if="loadingPreset" class="full inherited-preset loading">Đang tìm cấu hình mùa gần nhất…</div>
         <label
           ><span class="label">Mùa giải</span
           ><select v-model="form.season_id" class="select" required>
@@ -369,13 +326,10 @@ function modeLabel(item) {
           ><span class="label">Tên giải</span
           ><input v-model="form.name" class="input" required
         /></label>
-        <label class="full">
-          <span class="label">URL logo</span>
-          <div class="logo-input">
-            <EntityAvatar v-if="form.logo_url" :src="form.logo_url" :name="form.name || 'Giải đấu'" :size="42" />
-            <input v-model="form.logo_url" class="input" placeholder="Chỉ nhập lần đầu; mùa sau hệ thống tự dùng lại" />
-          </div>
-        </label>
+        <label class="full"
+          ><span class="label">URL logo</span
+          ><input v-model="form.logo_url" class="input"
+        /></label>
         <label v-if="form.competition_mode === 'CLUB'"
           ><span class="label">Thể thức</span
           ><select v-model="form.format_type" class="select">
@@ -688,21 +642,6 @@ function modeLabel(item) {
 .preset.national b {
   color: #68e6ae;
 }
-.inherited-preset {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  padding: 11px 13px;
-  border: 1px solid rgba(85, 227, 169, 0.28);
-  border-radius: 13px;
-  background: rgba(85, 227, 169, 0.07);
-}
-.inherited-preset span { display: grid; gap: 2px; }
-.inherited-preset small { color: var(--muted); }
-.inherited-preset em { margin-left: auto; color: #68e6ae; font-size: 10px; font-style: normal; font-weight: 800; }
-.inherited-preset.loading { color: var(--muted); font-size: 11px; }
-.logo-input { display: flex; align-items: center; gap: 10px; }
-.logo-input .input { flex: 1; }
 .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

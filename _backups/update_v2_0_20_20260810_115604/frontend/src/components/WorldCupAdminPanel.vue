@@ -157,7 +157,7 @@ function mapEntry(entry) {
     country_code: entry.country_code,
     flag_url: entry.flag_url || "",
     confederation: entry.confederation || "OTHER",
-    seed_rank: entry.seed_rank || "",
+    seed_rank: entry.seed_rank || entry.world_seed_rank || "",
   };
 }
 
@@ -288,6 +288,7 @@ async function saveEntries() {
         country_code,
         flag_url,
         confederation,
+        seed_rank,
       }) => ({
         player_id,
         country_catalog_id: country_catalog_id || null,
@@ -295,6 +296,7 @@ async function saveEntries() {
         country_code,
         flag_url: flag_url || null,
         confederation,
+        seed_rank: seed_rank || null,
       }),
     );
     await api.put(`/competitions/${props.competitionId}/world-cup/entries`, {
@@ -573,7 +575,7 @@ onMounted(load);
                   <b>{{ entry.country_code }}</b>
                 </td>
                 <td>{{ entry.confederation }}</td>
-                <td><span v-if="entry.seed_rank" class="seed-badge" :title="`Hạt giống số ${entry.seed_rank} theo thành tích quốc gia`">S{{ entry.seed_rank }}</span><small v-else>Tự động</small></td>
+                <td>{{ entry.seed_rank || "—" }}</td>
                 <td>
                   <button class="icon-btn danger" @click="removeEntry(index)">
                     <Trash2 :size="15" />
@@ -826,11 +828,11 @@ onMounted(load);
             }"
           >
             <div>
-              <span><i v-if="match.home_seed_rank" class="seed-badge compact-seed">S{{ match.home_seed_rank }}</i>{{ match.home_country_name || "Chờ xác định" }}</span
+              <span>{{ match.home_country_name || "Chờ xác định" }}</span
               ><b>{{ match.home_score ?? "–" }}</b>
             </div>
             <div>
-              <span><i v-if="match.away_seed_rank" class="seed-badge compact-seed">S{{ match.away_seed_rank }}</i>{{ match.away_country_name || "Chờ xác định" }}</span
+              <span>{{ match.away_country_name || "Chờ xác định" }}</span
               ><b>{{ match.away_score ?? "–" }}</b>
             </div>
             <button
@@ -1149,22 +1151,6 @@ onMounted(load);
 .seed {
   width: 75px;
 }
-.seed-badge {
-  display: inline-grid;
-  place-items: center;
-  min-width: 28px;
-  height: 21px;
-  padding: 0 6px;
-  border: 1px solid rgba(255, 216, 102, 0.5);
-  border-radius: 7px;
-  color: #ffe27c;
-  background: linear-gradient(145deg, rgba(105, 75, 13, 0.94), rgba(30, 23, 8, 0.96));
-  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.2);
-  font-size: 9px;
-  font-weight: 900;
-  font-style: normal;
-}
-.compact-seed { min-width: 23px; height: 18px; margin-right: 6px; padding: 0 4px; font-size: 8px; }
 .player-cell,
 .nation-cell {
   display: flex;

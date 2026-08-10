@@ -9,12 +9,10 @@ const {
 } = require('./db');
 const { authenticate, requireAdmin } = require('./auth');
 const { allocateConfederationQuotas, drawNationalKnockout } = require('./national-tournament-algorithms');
-const { refreshNationalPerformanceRanks, assignNationalTournamentSeeds } = require('./automatic-seeding');
 
 const router = express.Router();
 const DRAW_MODES = ['SEEDED_CONSTRAINED', 'FULL_RANDOM'];
 const THEMES = ['CONTINENTAL_GOLD', 'OCEAN_BLUE', 'EMERALD_NIGHT'];
-const QUOTA_METHOD = 'DATABASE_RANKING_HAMILTON';
 const ROUND_DEFINITIONS = [
   ['R32', 'Vòng 32 đội', 1, 32, 16],
   ['R16', 'Vòng 16 đội', 2, 16, 8],
@@ -41,33 +39,69 @@ async function getProfile(competitionId, connection = undefined) {
 }
 
 async function calculateQuotas(connection = undefined) {
-  await refreshNationalPerformanceRanks(connection);
   const rows = await query(
-    `WITH eligible_countries AS (
-       SELECT cc.id AS country_catalog_id,
-              CONVERT(cc.confederation USING utf8mb4) COLLATE utf8mb4_unicode_ci AS confederation,
-              MIN(NULLIF(np.world_seed_rank,0)) AS best_rank
+    `SELECT available.confederation,available.available_country_count,
+            COALESCE(history.world_cup_strength_points,0) AS world_cup_strength_points,
+            COALESCE(history.national_cup_strength_points,0) AS national_cup_strength_points,
+            COALESCE(history.historical_strength_points,0) AS historical_strength_points,
+            COALESCE(history.championship_count,0) AS championship_count,
+            COALESCE(history.medal_count,0) AS medal_count
+     FROM (
+       SELECT CONVERT(cc.confederation USING utf8mb4) COLLATE utf8mb4_unicode_ci AS confederation,
+              COUNT(DISTINCT cc.id) AS available_country_count
        FROM country_catalog cc
        JOIN player_national_profiles np
          ON np.country_catalog_id=cc.id AND np.is_active=TRUE
        JOIN players p
          ON p.id=np.player_id AND p.status IN ('ACTIVE','FREE_AGENT','TRANSFER_LISTED')
        WHERE cc.is_active=TRUE
-         AND cc.confederation IN('AFC','CAF','CONCACAF','CONMEBOL','OFC','UEFA')
-       GROUP BY cc.id,CONVERT(cc.confederation USING utf8mb4) COLLATE utf8mb4_unicode_ci
-     ), ranked_countries AS (
-       SELECT eligible_countries.*,
-              ROW_NUMBER() OVER(
-                ORDER BY best_rank IS NULL,best_rank,country_catalog_id
-              ) AS database_rank_position
-       FROM eligible_countries
-     )
-     SELECT confederation,
-            COUNT(*) AS available_country_count,
-            SUM(best_rank IS NOT NULL AND database_rank_position<=32) AS strong_country_count
-     FROM ranked_countries
-     GROUP BY confederation
-     ORDER BY confederation`, [], connection
+       GROUP BY CONVERT(cc.confederation USING utf8mb4) COLLATE utf8mb4_unicode_ci
+     ) available
+     LEFT JOIN (
+       SELECT history_rows.confederation,
+              SUM(history_rows.world_points) AS world_cup_strength_points,
+              SUM(history_rows.national_points) AS national_cup_strength_points,
+              SUM(history_rows.world_points+history_rows.national_points) AS historical_strength_points,
+              SUM(history_rows.is_champion) AS championship_count,
+              SUM(history_rows.is_medal) AS medal_count
+       FROM (
+         SELECT COALESCE(
+                  CONVERT(cc.confederation USING utf8mb4) COLLATE utf8mb4_unicode_ci,
+                  CONVERT(e.confederation USING utf8mb4) COLLATE utf8mb4_unicode_ci
+                ) AS confederation,
+                CASE
+                  WHEN r.placement=1 THEN 120 WHEN r.placement=2 THEN 80
+                  WHEN r.placement=3 THEN 55 WHEN r.placement=4 THEN 35
+                  WHEN r.placement<=8 THEN 18 WHEN r.placement<=16 THEN 8
+                  WHEN r.placement<=32 THEN 3 ELSE 0
+                END AS world_points,
+                0 AS national_points,
+                CASE WHEN r.placement=1 THEN 1 ELSE 0 END AS is_champion,
+                CASE WHEN r.placement<=3 THEN 1 ELSE 0 END AS is_medal
+         FROM world_cup_results r
+         JOIN world_cup_entries e ON e.id=r.entry_id
+         LEFT JOIN country_catalog cc ON cc.id=e.country_catalog_id
+         UNION ALL
+         SELECT COALESCE(
+                  CONVERT(cc.confederation USING utf8mb4) COLLATE utf8mb4_unicode_ci,
+                  CONVERT(e.confederation USING utf8mb4) COLLATE utf8mb4_unicode_ci
+                ) AS confederation,
+                0 AS world_points,
+                CASE
+                  WHEN r.placement=1 THEN 80 WHEN r.placement=2 THEN 52
+                  WHEN r.placement=3 THEN 36 WHEN r.placement=4 THEN 24
+                  WHEN r.placement<=8 THEN 12 WHEN r.placement<=16 THEN 5
+                  WHEN r.placement<=32 THEN 2 ELSE 0
+                END AS national_points,
+                CASE WHEN r.placement=1 THEN 1 ELSE 0 END AS is_champion,
+                CASE WHEN r.placement<=3 THEN 1 ELSE 0 END AS is_medal
+         FROM national_cup_results r
+         JOIN national_cup_entries e ON e.id=r.entry_id
+         LEFT JOIN country_catalog cc ON cc.id=e.country_catalog_id
+       ) history_rows
+       GROUP BY history_rows.confederation
+     ) history ON history.confederation=available.confederation
+     ORDER BY available.confederation`, [], connection
   );
   try {
     return allocateConfederationQuotas(rows, 32);
@@ -81,14 +115,13 @@ async function saveQuotas(competitionId, quotas, connection) {
   for (const quota of quotas) {
     await query(
       `INSERT INTO national_cup_confederation_quotas(
-         competition_id,confederation,available_country_count,strong_country_count,slot_count,
+         competition_id,confederation,available_country_count,slot_count,
          world_cup_strength_points,national_cup_strength_points,historical_strength_points,
          championship_count,medal_count,availability_share,strength_share,allocation_weight,
          proportional_slot_target,weighted_slot_target,minimum_slot_count,maximum_slot_count,
          strength_adjustment_slots,is_capacity_limited
-       ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [competitionId, quota.confederation, quota.available_country_count,
-        quota.strong_country_count, quota.slot_count,
+       ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [competitionId, quota.confederation, quota.available_country_count, quota.slot_count,
         quota.world_cup_strength_points, quota.national_cup_strength_points,
         quota.historical_strength_points, quota.championship_count, quota.medal_count,
         quota.availability_share, quota.strength_share, quota.allocation_weight,
@@ -98,13 +131,12 @@ async function saveQuotas(competitionId, quotas, connection) {
     );
   }
   await query(
-    'UPDATE national_cup_profiles SET quota_method=? WHERE competition_id=?',
-    [QUOTA_METHOD, competitionId], connection
+    "UPDATE national_cup_profiles SET quota_method='CAPACITY_STRENGTH_HAMILTON' WHERE competition_id=?",
+    [competitionId], connection
   );
 }
 
 async function eligibleNationalProfiles() {
-  await refreshNationalPerformanceRanks();
   return query(
     `SELECT p.id AS player_id,p.full_name,p.photo_url,p.position,
             c.name AS current_club_name,np.country_catalog_id,
@@ -129,7 +161,6 @@ async function eligibleNationalProfiles() {
      JOIN country_catalog cc ON cc.id=np.country_catalog_id AND cc.is_active=TRUE
      LEFT JOIN clubs c ON c.id=p.club_id
      WHERE np.is_active=TRUE
-       AND cc.confederation IN('AFC','CAF','CONCACAF','CONMEBOL','OFC','UEFA')
      ORDER BY cc.confederation,cc.name_vi,p.full_name`
   );
 }
@@ -142,9 +173,7 @@ async function tournamentPayload(competitionId) {
        FROM national_cup_confederation_quotas q
        LEFT JOIN national_cup_entries e ON e.competition_id=q.competition_id
          AND e.confederation=q.confederation AND e.status='APPROVED'
-       WHERE q.competition_id=?
-         AND q.confederation IN('AFC','CAF','CONCACAF','CONMEBOL','OFC','UEFA')
-       GROUP BY q.id ORDER BY q.slot_count DESC,q.confederation`, [competitionId]
+       WHERE q.competition_id=? GROUP BY q.id ORDER BY q.slot_count DESC,q.confederation`, [competitionId]
     ),
     query(
       `SELECT e.*,p.full_name AS player_name,p.photo_url,p.position,c.name AS current_club_name,
@@ -156,9 +185,9 @@ async function tournamentPayload(competitionId) {
     query('SELECT * FROM national_cup_rounds WHERE competition_id=? ORDER BY round_order', [competitionId]),
     query(
       `SELECT m.*,r.round_code,r.round_name,r.round_order,
-              he.country_name AS home_country_name,he.country_code AS home_country_code,he.flag_url AS home_flag_url,he.seed_rank AS home_seed_rank,
+              he.country_name AS home_country_name,he.country_code AS home_country_code,he.flag_url AS home_flag_url,
               hp.full_name AS home_player_name,
-              ae.country_name AS away_country_name,ae.country_code AS away_country_code,ae.flag_url AS away_flag_url,ae.seed_rank AS away_seed_rank,
+              ae.country_name AS away_country_name,ae.country_code AS away_country_code,ae.flag_url AS away_flag_url,
               ap.full_name AS away_player_name,
               we.country_name AS winner_country_name,wp.full_name AS winner_player_name
        FROM national_cup_matches m JOIN national_cup_rounds r ON r.id=m.round_id
@@ -354,8 +383,8 @@ router.post('/competitions/national-special-32', authenticate, requireAdmin, asy
     );
     await query(
       `INSERT INTO national_cup_profiles(competition_id,draw_mode,quota_method,visual_theme)
-       VALUES(?,?,?,?)`,
-      [inserted.insertId, drawMode, QUOTA_METHOD, visualTheme], connection
+       VALUES(?,?,'CAPACITY_STRENGTH_HAMILTON',?)`,
+      [inserted.insertId, drawMode, visualTheme], connection
     );
     await saveQuotas(inserted.insertId, quotas, connection);
     const rules = [
@@ -428,7 +457,7 @@ router.post('/competitions/:id/national-tournament/recalculate-quotas', authenti
     [competitionId]
   );
   return ok(res, {
-    message: 'Đã chia lại đủ 32 suất: 60% theo số quốc gia thực có trong DB và 40% theo nhóm quốc gia xếp hạng mạnh; không dùng Khu vực khác.',
+    message: 'Đã quét lại đại diện hợp lệ và chia đủ 32 suất theo 80% quy mô + 20% thành tích có giới hạn công bằng.',
     quotas
   });
 });
@@ -440,9 +469,12 @@ router.put('/competitions/:id/national-tournament/entries', authenticate, requir
   if (!Array.isArray(req.body.entries)) throw new ApiError(400, 'entries phải là một danh sách.');
   if (req.body.entries.length > 32) throw new ApiError(400, 'Giải chỉ nhận tối đa 32 quốc gia.');
   const normalized = req.body.entries.map((entry, index) => ({
-    playerId: parsePositiveInt(entry.player_id, `entries[${index}].player_id`)
+    playerId: parsePositiveInt(entry.player_id, `entries[${index}].player_id`),
+    seedRank: entry.seed_rank ? parsePositiveInt(entry.seed_rank, `entries[${index}].seed_rank`, { max: 999 }) : null
   }));
   if (new Set(normalized.map((item) => item.playerId)).size !== normalized.length) throw new ApiError(400, 'Một cầu thủ bị chọn nhiều lần.');
+  const seeds = normalized.map((item) => item.seedRank).filter(Boolean);
+  if (new Set(seeds).size !== seeds.length) throw new ApiError(400, 'Thứ hạng hạt giống không được trùng nhau.');
 
   await transaction(async (connection) => {
     const entries = [];
@@ -467,11 +499,9 @@ router.put('/competitions/:id/national-tournament/entries', authenticate, requir
     if (new Set(entries.map((item) => Number(item.countryCatalogId))).size !== entries.length) {
       throw new ApiError(400, 'Mỗi quốc gia chỉ được có một cầu thủ đại diện trong giải.');
     }
-    const performanceRows = await refreshNationalPerformanceRanks(connection);
-    const seededEntries = assignNationalTournamentSeeds(entries, performanceRows);
     const quotas = await query('SELECT * FROM national_cup_confederation_quotas WHERE competition_id=?', [competitionId], connection);
     const quotaByConfederation = new Map(quotas.map((quota) => [quota.confederation, quota]));
-    for (const entry of seededEntries) {
+    for (const entry of entries) {
       if (!quotaByConfederation.has(entry.confederation)) {
         throw new ApiError(400, `${entry.confederation} không có suất hợp lệ trong lần phân bổ hiện tại.`);
       }
@@ -481,7 +511,7 @@ router.put('/competitions/:id/national-tournament/entries', authenticate, requir
       if (selected > Number(quota.slot_count)) throw new ApiError(400, `${quota.confederation} chỉ có ${quota.slot_count} suất.`);
     }
     await query('DELETE FROM national_cup_entries WHERE competition_id=?', [competitionId], connection);
-    for (const entry of seededEntries) {
+    for (const entry of entries) {
       await query(
         `INSERT INTO national_cup_entries(
            competition_id,player_id,country_catalog_id,country_name,country_code,flag_url,confederation,seed_rank
@@ -505,8 +535,8 @@ router.put('/competitions/:id/national-tournament/entries', authenticate, requir
 router.post('/competitions/:id/national-tournament/draw', authenticate, requireAdmin, async (req, res) => {
   const competitionId = parsePositiveInt(req.params.id);
   const profile = await getProfile(competitionId);
-  if (profile.quota_method !== QUOTA_METHOD) {
-    throw new ApiError(400, 'Hãy bấm Tính lại hạn ngạch dữ liệu v2.0.19 trước khi bốc thăm.');
+  if (profile.quota_method !== 'CAPACITY_STRENGTH_HAMILTON') {
+    throw new ApiError(400, 'Hãy bấm Tính lại hạn ngạch v2.0.18 trước khi bốc thăm.');
   }
   const mode = parseEnum(req.body.mode || profile.draw_mode, DRAW_MODES, 'mode');
   const [entries, quotas] = await Promise.all([
@@ -530,7 +560,7 @@ router.post('/competitions/:id/national-tournament/draw', authenticate, requireA
     await query("UPDATE competitions SET status='KNOCKOUT_STAGE' WHERE id=?", [competitionId], connection);
   });
   return ok(res, {
-    message: `Đã tạo nhánh 32 đội${draw.used_seeding ? ` với ${draw.explicit_seed_count} hạt giống tự động theo thành tích` : ' theo chế độ ngẫu nhiên'}.`,
+    message: `Đã tạo nhánh 32 đội${draw.used_seeding ? ` với ${draw.explicit_seed_count} hạt giống khai báo` : ' theo chế độ ngẫu nhiên'}.`,
     warning: draw.warning, sameConfederationMatches: draw.same_confederation_matches
   });
 });

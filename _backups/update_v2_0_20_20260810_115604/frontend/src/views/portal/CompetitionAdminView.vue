@@ -107,6 +107,7 @@ onMounted(load);
 function openParticipant() {
   form.value = {
     club_id: isAdmin.value ? "" : authStore.user.value.clubId,
+    seed_no: "",
     registration_status: isAdmin.value ? "APPROVED" : undefined,
   };
   modal.value = "participant";
@@ -134,6 +135,7 @@ async function setParticipant(row, status) {
   try {
     await api.patch(`/competition-participants/${row.id}`, {
       registration_status: status,
+      seed_no: row.seed_no || null,
     });
     uiStore.notify("Đã cập nhật đội tham dự và phí giải nếu có.");
     load();
@@ -676,7 +678,7 @@ async function saveSpecial() {
                   <b>{{ p.competition_roster_count }}</b
                   ><small class="muted-block">Tự động đồng bộ</small>
                 </td>
-                <td><span v-if="p.seed_no" class="seed-badge" :title="`Top ${p.seed_no} theo thành tích CLB`">S{{ p.seed_no }}</span><small v-else class="muted-block">Tự động</small></td>
+                <td>{{ p.seed_no || "—" }}</td>
                 <td>{{ money(p.club_balance, true) }}</td>
                 <td><StatusBadge :status="p.registration_status" /></td>
                 <td>
@@ -1297,10 +1299,10 @@ async function saveSpecial() {
                 {{ c.name }}
               </option>
             </select></label
-          ><div class="form-group full automatic-seed-note">
-            <b>4 hạt giống tự động</b>
-            <small>Hệ thống lấy thành tích và điểm xếp hạng CLB hiện có; FIFA không cần nhập tay.</small>
-          </div>
+          ><label class="form-group full"
+            ><span class="label">Hạt giống</span
+            ><input v-model="form.seed_no" type="number" min="1" class="input"
+          /></label>
           <div class="form-group full actions">
             <button type="button" class="btn" @click="modal = ''">Hủy</button
             ><button class="btn btn-primary" :disabled="busy">
@@ -1713,27 +1715,6 @@ async function saveSpecial() {
   font-size: 9px;
   margin-top: 3px;
 }
-.seed-badge {
-  display: inline-grid;
-  place-items: center;
-  min-width: 28px;
-  height: 21px;
-  border: 1px solid rgba(255, 216, 102, 0.5);
-  border-radius: 7px;
-  color: #ffe27c;
-  background: linear-gradient(145deg, rgba(105, 75, 13, 0.94), rgba(30, 23, 8, 0.96));
-  font-size: 9px;
-  font-weight: 900;
-}
-.automatic-seed-note {
-  display: grid;
-  gap: 4px;
-  padding: 12px;
-  border: 1px solid rgba(255, 216, 102, 0.22);
-  border-radius: 11px;
-  background: rgba(255, 216, 102, 0.06);
-}
-.automatic-seed-note small { color: var(--muted); }
 .stat-editor td small {
   display: block;
   color: var(--muted);

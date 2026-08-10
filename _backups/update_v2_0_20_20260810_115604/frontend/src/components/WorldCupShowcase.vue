@@ -206,7 +206,7 @@ onMounted(load);
               ><b>{{ entry.country_name }}</b
               ><small>{{ entry.player_name }}</small></span
             >
-            <em v-if="entry.seed_rank" :title="`Hạt giống số ${entry.seed_rank} theo thành tích quốc gia`">S{{ entry.seed_rank }}</em>
+            <em>#{{ entry.seed_rank || "—" }}</em>
           </div>
         </div>
       </article>
@@ -240,7 +240,7 @@ onMounted(load);
         >
           <b>{{ row.group_rank }}</b>
           <span class="nation"
-            ><img :src="flag(row, 28)" /><span><i v-if="row.seed_rank" class="mini-seed">S{{ row.seed_rank }}</i>{{
+            ><img :src="flag(row, 28)" /><span>{{
               row.country_name
             }}</span></span
           >
@@ -757,19 +757,6 @@ onMounted(load);
 .country-grid em {
   color: #ffe27c;
   font-size: 10px;
-}
-.mini-seed {
-  display: inline-grid;
-  place-items: center;
-  min-width: 22px;
-  height: 17px;
-  margin-right: 5px;
-  border-radius: 5px;
-  color: #191100;
-  background: linear-gradient(135deg, #ffe27c, #dca52d);
-  font-size: 8px;
-  font-style: normal;
-  font-weight: 900;
 }
 .upset-list {
   display: grid;

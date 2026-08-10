@@ -27,7 +27,7 @@ function emptyForm() {
     player_id: '', full_name: '', photo_url: '', current_club_name: '',
     country_catalog_id: '', country_name: '', country_code: '', flag_url: '',
     flag_emoji: '🌍', catalog_name_vi: '', catalog_name_en: '',
-    confederation: 'OTHER'
+    confederation: 'OTHER', world_seed_rank: ''
   }
 }
 
@@ -80,12 +80,24 @@ function selectPlayer(row, allowDraft = true) {
     country_catalog_id: row.country_catalog_id || '', country_name: row.country_name || '',
     country_code: row.country_code || '', flag_url: row.flag_url || '', flag_emoji: row.flag_emoji || '🌍',
     catalog_name_vi: row.catalog_name_vi || row.country_name || '', catalog_name_en: row.catalog_name_en || '',
-    confederation: row.confederation || 'OTHER'
+    confederation: row.confederation || 'OTHER', world_seed_rank: row.world_seed_rank || ''
   }
   if (allowDraft) {
     try {
       const stored = JSON.parse(localStorage.getItem(draftKey(row.player_id)) || 'null')
-      form.value = stored ? { ...base, ...stored, player_id: Number(row.player_id), full_name: row.full_name } : base
+      const restored = stored ? { ...base, ...stored, player_id: Number(row.player_id), full_name: row.full_name } : base
+      // A saved catalog row is the source of truth. Old browser drafts must not
+      // put a stale flag/confederation back on the same country assignment.
+      if (stored && base.country_catalog_id && Number(stored.country_catalog_id) === Number(base.country_catalog_id)) {
+        restored.country_name = base.country_name
+        restored.country_code = base.country_code
+        restored.flag_url = base.flag_url
+        restored.flag_emoji = base.flag_emoji
+        restored.catalog_name_vi = base.catalog_name_vi
+        restored.catalog_name_en = base.catalog_name_en
+        restored.confederation = base.confederation
+      }
+      form.value = restored
       if (stored) uiStore.notify(`Đã khôi phục phần nhập chưa lưu của ${row.full_name}.`, 'warning')
     } catch { form.value = base }
   } else form.value = base
@@ -102,7 +114,7 @@ watch(form, (value) => {
     country_name: value.country_name, country_code: value.country_code,
     flag_url: value.flag_url, flag_emoji: value.flag_emoji,
     catalog_name_vi: value.catalog_name_vi, catalog_name_en: value.catalog_name_en,
-    confederation: value.confederation
+    confederation: value.confederation, world_seed_rank: value.world_seed_rank
   }))
 }, { deep: true })
 
@@ -146,7 +158,8 @@ async function saveProfile() {
   busy.value = true
   try {
     const response = await api.put(`/world-cup/national-profiles/${form.value.player_id}`, {
-      country_catalog_id: form.value.country_catalog_id
+      country_catalog_id: form.value.country_catalog_id,
+      world_seed_rank: form.value.world_seed_rank || null
     })
     const index = rows.value.findIndex((row) => Number(row.player_id) === Number(form.value.player_id))
     if (index >= 0) rows.value.splice(index, 1, response.data)
@@ -256,7 +269,7 @@ onMounted(load)
               <div><span>Liên đoàn</span><b>{{ form.confederation || '—' }}</b></div>
               <div><span>Nguồn cờ</span><b>{{ form.country_catalog_id ? 'Tự động chuẩn hóa' : 'Chưa chọn' }}</b></div>
             </div>
-            <div class="full automatic-seed-note"><Sparkles :size="16"/><span><b>Hạt giống được xếp tự động</b><small>Hệ thống dùng thành tích quốc gia, huy chương và điểm quốc gia; bạn không cần nhập thứ hạng.</small></span><em v-if="selected.world_seed_rank">Hạng thành tích #{{ selected.world_seed_rank }}</em></div>
+            <label class="full"><span class="label">Hạng hạt giống thế giới</span><input v-model.number="form.world_seed_rank" type="number" min="1" max="999" class="input" placeholder="Có thể để trống; dùng khi bốc thăm 4 nhóm hạt giống"/></label>
             <div class="draft-note full"><Database :size="18"/><span>Hồ sơ lưu theo từng cầu thủ. Nhiều cầu thủ được phép cùng quốc gia; khi đưa vào một kỳ World Cup, FIFA chọn đúng một người đại diện quốc gia đó.</span></div>
             <div class="actions full">
               <button v-if="selected.country_name" type="button" class="btn btn-danger" :disabled="busy" @click="deleteProfile"><Trash2 :size="16"/>Xóa liên kết</button>
@@ -271,10 +284,5 @@ onMounted(load)
 </template>
 
 <style scoped>
-.automatic-seed-note{display:flex;align-items:center;gap:9px;padding:12px;border:1px solid rgba(255,215,99,.25);border-radius:11px;background:rgba(255,215,99,.065)}
-.automatic-seed-note>svg{color:#ffe277;flex:0 0 auto}
-.automatic-seed-note span{display:grid;gap:3px}
-.automatic-seed-note small{color:var(--muted)}
-.automatic-seed-note em{margin-left:auto;color:#ffe277;font-size:10px;font-style:normal;font-weight:900}
 .save-state{display:flex;align-items:center;gap:8px;padding:10px 13px;border:1px solid rgba(68,220,148,.25);border-radius:12px;background:rgba(68,220,148,.07);color:#70e3a9;font-size:12px;font-weight:800}.stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px}.stat-card{display:flex;align-items:center;gap:13px;padding:16px;border:1px solid var(--line);border-radius:15px}.stat-card svg{color:#ffe277}.stat-card b,.stat-card span{display:block}.stat-card b{font:900 27px Manrope}.stat-card span{color:var(--muted);font-size:11px}.library-grid{display:grid;grid-template-columns:minmax(420px,1.05fr) minmax(390px,.95fr);gap:18px}.player-library,.editor-card{padding:16px;min-width:0}.toolbar{display:grid;grid-template-columns:1fr 190px;gap:10px;margin-bottom:13px}.search-box{height:43px;display:flex;align-items:center;gap:8px;padding:0 12px;border:1px solid var(--line);border-radius:11px}.search-box input{width:100%;border:0;outline:0;background:transparent;color:var(--text)}.player-list{display:grid;gap:7px;max-height:680px;overflow:auto;padding-right:4px}.player-list>button{width:100%;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px;padding:11px;border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.02);color:var(--text);text-align:left}.player-list>button:hover,.player-list>button.active{border-color:rgba(78,135,255,.55);background:rgba(78,135,255,.09)}.player-info{min-width:0}.player-info b,.player-info small,.player-info em{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.player-info small{color:var(--muted);font-size:10px;margin:3px 0}.player-info em{font-style:normal;color:#ffe277;font-size:10px}.player-info em.missing{color:#ff9e89}.duplicate-badge{padding:5px 7px;border-radius:8px;background:rgba(255,200,87,.09);color:#ffd66f;font-size:9px}.saved-icon{color:#65dfa1}.editor-card{align-self:start;position:sticky;top:100px;background:radial-gradient(circle at 0 0,rgba(255,215,95,.1),transparent 30%),var(--glass)}.editor-head{display:flex;align-items:center;justify-content:space-between;padding-bottom:14px;border-bottom:1px solid var(--line)}.country-preview{display:flex;align-items:center;gap:11px}.flag-frame{width:78px;height:52px;display:grid;place-items:center;overflow:hidden;border:1px solid rgba(255,255,255,.15);border-radius:10px;background:#09152b;box-shadow:0 8px 25px rgba(0,0,0,.22)}.flag-frame img{width:100%;height:100%;object-fit:cover}.flag-frame span{font-size:31px}.country-preview small,.country-preview b,.country-preview em{display:block}.country-preview small{color:var(--muted);font-size:9px;text-transform:uppercase}.country-preview b{margin-top:4px}.country-preview em{margin-top:2px;color:var(--muted);font-size:10px;font-style:normal}.selected-player{padding:17px 0 12px}.selected-player h2{margin:5px 0}.selected-player p{margin:0;color:var(--muted)}.profile-form{display:grid;grid-template-columns:1fr 1fr;gap:12px}.profile-form .full{grid-column:1/-1}.country-picker{position:relative}.country-input{display:flex;align-items:center;gap:8px;padding-left:12px;border:1px solid rgba(94,139,255,.38);border-radius:12px;background:rgba(10,23,48,.8)}.country-input .input{border:0;background:transparent}.search-status{display:flex;align-items:center;gap:7px;margin-top:7px;color:#ffe27a;font-size:10px}.country-results{position:absolute;z-index:20;left:0;right:0;top:76px;max-height:330px;overflow:auto;padding:7px;border:1px solid rgba(91,134,255,.38);border-radius:13px;background:#0a1730;box-shadow:0 22px 60px rgba(0,0,0,.5)}.country-results button{width:100%;display:grid;grid-template-columns:46px minmax(0,1fr) auto auto;align-items:center;gap:9px;padding:9px;border:0;border-radius:10px;background:transparent;color:var(--text);text-align:left}.country-results button:hover{background:rgba(91,134,255,.13)}.mini-flag{width:43px;height:29px;display:grid;place-items:center;overflow:hidden;border-radius:6px;background:#12203c}.mini-flag img{grid-area:1/1;width:100%;height:100%;object-fit:cover}.mini-flag em{grid-area:1/1;font-style:normal}.country-results b,.country-results small{display:block}.country-results small{margin-top:2px;color:var(--muted);font-size:9px}.country-results strong{color:#ffe27a}.country-results i{padding:4px 6px;border-radius:7px;background:rgba(83,223,154,.08);color:#68dfa4;font-size:8px;font-style:normal}.auto-info{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.auto-info>div{padding:11px;border:1px solid var(--line);border-radius:11px;background:rgba(255,255,255,.025)}.auto-info span,.auto-info b{display:block}.auto-info span{color:var(--muted);font-size:8px;text-transform:uppercase;letter-spacing:.08em}.auto-info b{margin-top:5px;font-size:11px}.auto-info.empty{opacity:.55}.draft-note{display:flex;align-items:flex-start;gap:9px;padding:12px;border:1px solid rgba(255,215,99,.22);border-radius:11px;background:rgba(255,215,99,.055);font-size:11px;color:var(--muted);line-height:1.5}.draft-note svg{flex:0 0 auto;color:#ffe277}.actions{display:flex;justify-content:flex-end;gap:9px}.actions .btn-danger{margin-right:auto}@media(max-width:1050px){.library-grid{grid-template-columns:1fr}.editor-card{position:static}.player-list{max-height:450px}}@media(max-width:680px){.stat-grid,.auto-info{grid-template-columns:1fr}.toolbar,.profile-form{grid-template-columns:1fr}.profile-form .full{grid-column:auto}.player-list>button{grid-template-columns:auto minmax(0,1fr)}.duplicate-badge,.saved-icon{grid-column:2}.actions{flex-direction:column}.actions .btn{width:100%}.country-results button{grid-template-columns:42px minmax(0,1fr) auto}.country-results i{display:none}}
 </style>

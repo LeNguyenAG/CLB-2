@@ -27,7 +27,6 @@ const {
 } = require('./world-cup-algorithms');
 
 const { finalizeCompetitionAwards } = require('./smart-awards');
-const { refreshNationalPerformanceRanks, assignNationalTournamentSeeds } = require('./automatic-seeding');
 
 const router = express.Router();
 
@@ -131,7 +130,7 @@ async function worldCupPayload(competitionId) {
     ),
     query('SELECT * FROM world_cup_groups WHERE competition_id = ? ORDER BY display_order', [competitionId]),
     query(
-      `SELECT gm.*, g.group_code, e.country_name, e.country_code, e.flag_url,e.seed_rank,
+      `SELECT gm.*, g.group_code, e.country_name, e.country_code, e.flag_url,
               e.player_id, p.full_name AS player_name
        FROM world_cup_group_members gm
        JOIN world_cup_groups g ON g.id = gm.group_id
@@ -145,8 +144,8 @@ async function worldCupPayload(competitionId) {
     query('SELECT * FROM world_cup_rounds WHERE competition_id = ? ORDER BY round_order', [competitionId]),
     query(
       `SELECT m.*, g.group_code, r.round_code, r.round_name, r.round_order,
-              he.country_name AS home_country_name, he.country_code AS home_country_code, he.flag_url AS home_flag_url,he.seed_rank AS home_seed_rank,
-              ae.country_name AS away_country_name, ae.country_code AS away_country_code, ae.flag_url AS away_flag_url,ae.seed_rank AS away_seed_rank,
+              he.country_name AS home_country_name, he.country_code AS home_country_code, he.flag_url AS home_flag_url,
+              ae.country_name AS away_country_name, ae.country_code AS away_country_code, ae.flag_url AS away_flag_url,
               we.country_name AS winner_country_name, le.country_name AS loser_country_name
        FROM world_cup_matches m
        LEFT JOIN world_cup_groups g ON g.id = m.group_id
@@ -443,14 +442,18 @@ router.get('/world-cup/countries/search', authenticate, requireAdmin, async (req
 });
 
 router.get('/world-cup/national-profiles', authenticate, requireAdmin, async (_req, res) => {
-  await refreshNationalPerformanceRanks();
   return ok(res, await query(
     `SELECT p.id AS player_id, p.full_name, p.photo_url, p.position,
             c.name AS current_club_name, np.country_catalog_id,
-            np.country_name, np.country_code, np.flag_url,
-            np.confederation, np.world_seed_rank,
+            CASE WHEN cc.id IS NOT NULL THEN cc.name_vi ELSE np.country_name END AS country_name,
+            CASE WHEN cc.id IS NOT NULL THEN cc.fifa_code ELSE np.country_code END AS country_code,
+            CASE WHEN cc.id IS NOT NULL THEN cc.flag_url ELSE np.flag_url END AS flag_url,
+            CASE WHEN cc.id IS NOT NULL THEN cc.confederation ELSE np.confederation END AS confederation,
+            np.world_seed_rank,
             cc.name_vi AS catalog_name_vi, cc.name_en AS catalog_name_en,
-            cc.iso2 AS catalog_iso2, cc.flag_emoji,
+            cc.iso2 AS catalog_iso2, cc.fifa_code AS catalog_fifa_code,
+            cc.flag_url AS catalog_flag_url, cc.confederation AS catalog_confederation,
+            cc.flag_emoji,
             np.is_active, np.created_at AS profile_created_at,
             np.updated_at AS profile_updated_at,
             CASE WHEN np.player_id IS NULL THEN FALSE ELSE TRUE END AS has_national_profile
@@ -466,6 +469,9 @@ router.get('/world-cup/national-profiles', authenticate, requireAdmin, async (_r
 router.put('/world-cup/national-profiles/:playerId', authenticate, requireAdmin, async (req, res) => {
   const playerId = parsePositiveInt(req.params.playerId, 'playerId');
   const country = await resolveCountryCatalog(req.body);
+  const worldSeedRank = req.body.world_seed_rank
+    ? parsePositiveInt(req.body.world_seed_rank, 'world_seed_rank', { max: 999 })
+    : null;
 
   const player = await first(
     `SELECT p.id, p.full_name
@@ -489,9 +495,8 @@ router.put('/world-cup/national-profiles/:playerId', authenticate, requireAdmin,
        world_seed_rank = VALUES(world_seed_rank),
        is_active = TRUE`,
     [playerId, country.id, country.name_vi, country.fifa_code,
-      country.flag_url, country.confederation, null]
+      country.flag_url, country.confederation, worldSeedRank]
   );
-  await refreshNationalPerformanceRanks();
 
   await audit({
     userId: req.user.id,
@@ -504,17 +509,22 @@ router.put('/world-cup/national-profiles/:playerId', authenticate, requireAdmin,
       countryNameEn: country.name_en,
       countryCode: country.fifa_code,
       confederation: country.confederation,
-      automaticSeeding: true
+      worldSeedRank
     }
   });
 
   const saved = await first(
     `SELECT p.id AS player_id, p.full_name, p.photo_url, p.position,
             c.name AS current_club_name, np.country_catalog_id,
-            np.country_name, np.country_code, np.flag_url,
-            np.confederation, np.world_seed_rank,
+            CASE WHEN cc.id IS NOT NULL THEN cc.name_vi ELSE np.country_name END AS country_name,
+            CASE WHEN cc.id IS NOT NULL THEN cc.fifa_code ELSE np.country_code END AS country_code,
+            CASE WHEN cc.id IS NOT NULL THEN cc.flag_url ELSE np.flag_url END AS flag_url,
+            CASE WHEN cc.id IS NOT NULL THEN cc.confederation ELSE np.confederation END AS confederation,
+            np.world_seed_rank,
             cc.name_vi AS catalog_name_vi, cc.name_en AS catalog_name_en,
-            cc.iso2 AS catalog_iso2, cc.flag_emoji,
+            cc.iso2 AS catalog_iso2, cc.fifa_code AS catalog_fifa_code,
+            cc.flag_url AS catalog_flag_url, cc.confederation AS catalog_confederation,
+            cc.flag_emoji,
             np.is_active, np.created_at AS profile_created_at,
             np.updated_at AS profile_updated_at, TRUE AS has_national_profile
      FROM players p
@@ -538,7 +548,6 @@ router.delete('/world-cup/national-profiles/:playerId', authenticate, requireAdm
   if (!existing) throw new ApiError(404, 'Cầu thủ này chưa có hồ sơ quốc gia.');
 
   await query('DELETE FROM player_national_profiles WHERE player_id = ?', [playerId]);
-  await refreshNationalPerformanceRanks();
   await audit({
     userId: req.user.id,
     actionCode: 'DELETE_PLAYER_NATIONAL_PROFILE',
@@ -566,7 +575,7 @@ router.put('/competitions/:id/world-cup/entries', authenticate, requireAdmin, as
     countryCode: parseText(entry.country_code, `entries[${index}].country_code`, { max: 8 }).toUpperCase(),
     flagUrl: parseText(entry.flag_url, `entries[${index}].flag_url`, { required: false, nullable: true, max: 500 }),
     confederation: parseEnum(entry.confederation || 'OTHER', CONFEDERATIONS, `entries[${index}].confederation`),
-    seedRank: null
+    seedRank: entry.seed_rank ? parsePositiveInt(entry.seed_rank, `entries[${index}].seed_rank`, { max: 999 }) : null
   }));
 
   if (new Set(normalized.map((item) => item.playerId)).size !== normalized.length) throw new ApiError(400, 'Một cầu thủ không thể đại diện hai quốc gia trong cùng giải.');
@@ -590,13 +599,9 @@ router.put('/competitions/:id/world-cup/entries', authenticate, requireAdmin, as
            country_name = VALUES(country_name), country_code = VALUES(country_code),
            flag_url = VALUES(flag_url), confederation = VALUES(confederation),
            world_seed_rank = VALUES(world_seed_rank), is_active = TRUE`,
-        [item.playerId, item.countryCatalogId, item.countryName, item.countryCode, item.flagUrl, item.confederation, null],
+        [item.playerId, item.countryCatalogId, item.countryName, item.countryCode, item.flagUrl, item.confederation, item.seedRank],
         connection
       );
-    }
-    const performanceRows = await refreshNationalPerformanceRanks(connection);
-    const seededEntries = assignNationalTournamentSeeds(normalized, performanceRows);
-    for (const item of seededEntries) {
       await query(
         `INSERT INTO world_cup_entries(
            competition_id, player_id, country_catalog_id, country_name, country_code, flag_url,

@@ -46,15 +46,6 @@ const drawMode = ref("SEEDED_CONSTRAINED");
 const modal = ref("");
 const selectedMatch = ref(null);
 const resultForm = ref({});
-const QUOTA_METHOD = "DATABASE_RANKING_HAMILTON";
-const SUPPORTED_CONFEDERATIONS = [
-  "AFC",
-  "CAF",
-  "CONCACAF",
-  "CONMEBOL",
-  "OFC",
-  "UEFA",
-];
 
 const tabs = computed(() => [
   ["overview", "Tổng quan", Globe2],
@@ -82,13 +73,11 @@ const draftDirty = computed(
 );
 const selectionIssues = computed(() => {
   const issues = [];
-  const unsupported = entryDrafts.value.filter(
-    (entry) => !SUPPORTED_CONFEDERATIONS.includes(entry.confederation),
-  );
-  if (unsupported.length)
-    issues.push(
-      `Có ${unsupported.length} đại diện không thuộc 6 châu lục hợp lệ. Hãy xóa trước khi lưu hoặc tính lại suất.`,
-    );
+  const seeds = entryDrafts.value
+    .map((entry) => (entry.seed_rank ? Number(entry.seed_rank) : null))
+    .filter(Boolean);
+  if (new Set(seeds).size !== seeds.length)
+    issues.push("Thứ hạng hạt giống đang bị trùng.");
   for (const quota of data.value?.quotas || []) {
     const selected = entryDrafts.value.filter(
       (entry) => entry.confederation === quota.confederation,
@@ -106,7 +95,7 @@ const canSaveEntries = computed(
 const canDraw = computed(
   () =>
     !draftDirty.value &&
-    data.value?.profile?.quota_method === QUOTA_METHOD &&
+    data.value?.profile?.quota_method === "CAPACITY_STRENGTH_HAMILTON" &&
     entryDrafts.value.length === 32 &&
     selectionIssues.value.length === 0 &&
     (data.value?.quotas || []).every(
@@ -123,20 +112,14 @@ const confederationMeta = {
   CONMEBOL: { name: "Nam Mỹ", color: "#4ade80", symbol: "SA" },
   OFC: { name: "Châu Đại Dương", color: "#22d3ee", symbol: "OC" },
   UEFA: { name: "Châu Âu", color: "#facc15", symbol: "EU" },
-};
-const unknownConfederationMeta = {
-  name: "Không hợp lệ",
-  color: "#94a3b8",
-  symbol: "—",
+  OTHER: { name: "Khu vực khác", color: "#94a3b8", symbol: "OT" },
 };
 const quotaSummary = computed(() =>
-  (data.value?.quotas || [])
-    .filter((quota) => SUPPORTED_CONFEDERATIONS.includes(quota.confederation))
-    .map((quota) => ({
-      ...quota,
-      ...quotaStatus(quota),
-      meta: confederationInfo(quota.confederation),
-    })),
+  (data.value?.quotas || []).map((quota) => ({
+    ...quota,
+    ...quotaStatus(quota),
+    meta: confederationInfo(quota.confederation),
+  })),
 );
 const openQuotas = computed(() =>
   quotaSummary.value.filter((quota) => !quota.complete),
@@ -231,19 +214,19 @@ function quotaStatus(quota) {
   };
 }
 function confederationInfo(code) {
-  return confederationMeta[code] || unknownConfederationMeta;
+  return confederationMeta[code] || confederationMeta.OTHER;
 }
 function percentage(value) {
   return `${Math.round(Number(value || 0) * 100)}%`;
 }
 function quotaReason(quota) {
-  if (data.value.profile.quota_method !== QUOTA_METHOD) {
-    return "Hạn ngạch cũ · bấm Tính lại để áp dụng công thức dữ liệu v2.0.19";
+  if (data.value.profile.quota_method !== "CAPACITY_STRENGTH_HAMILTON") {
+    return "Hạn ngạch cũ · bấm Tính lại để áp dụng công thức công bằng v2.0.18";
   }
   const capacity = quota.is_capacity_limited
     ? " · đã chạm giới hạn quốc gia khả dụng"
     : "";
-  return `${percentage(quota.availability_share)} tỷ trọng dữ liệu · ${quota.strong_country_count || 0} quốc gia trong nhóm mạnh${capacity}`;
+  return `${percentage(quota.availability_share)} quy mô · ${number(quota.historical_strength_points)} điểm lịch sử · biên ${quota.minimum_slot_count}–${quota.maximum_slot_count}${capacity}`;
 }
 function clearFilters() {
   countrySearch.value = "";
@@ -314,7 +297,7 @@ function addProfile(profile) {
     country_code: profile.country_code,
     flag_url: profile.flag_url,
     confederation: profile.confederation,
-    seed_rank: null,
+    seed_rank: profile.world_seed_rank || null,
   });
   const nowUsed = used + 1;
   if (nowUsed === Number(quota.slot_count)) {
@@ -344,7 +327,10 @@ async function saveEntries() {
     await api.put(
       `/competitions/${props.competitionId}/national-tournament/entries`,
       {
-        entries: entryDrafts.value.map((entry) => ({ player_id: entry.player_id })),
+        entries: entryDrafts.value.map((entry) => ({
+          player_id: entry.player_id,
+          seed_rank: entry.seed_rank || null,
+        })),
       },
     );
     uiStore.notify(`Đã lưu ${entryDrafts.value.length}/32 đại diện.`);
@@ -539,9 +525,9 @@ async function resetTournament() {
             <span class="eyebrow">Phân bổ công bằng</span>
             <h2>32 suất theo châu lục</h2>
             <p>
-              Chỉ dùng 6 châu lục và dữ liệu hiện có trong hệ thống: 60% theo
-              số quốc gia hợp lệ, 40% theo số quốc gia nằm trong nhóm xếp hạng
-              mạnh hiện tại. Không dùng suất ngoài đời hoặc Khu vực khác.
+              Quét quốc gia có cầu thủ đại diện hợp lệ; 80% theo số lượng và
+              20% theo World Cup, chức vô địch và huy chương quốc gia. Thành
+              tích dùng lợi suất giảm dần để không lấn át quy mô thực tế.
             </p>
           </div>
           <button
@@ -551,7 +537,7 @@ async function resetTournament() {
             :title="
               draftDirty
                 ? 'Hãy lưu hoặc hoàn tác danh sách đang sửa trước.'
-                : 'Quét lại số quốc gia hợp lệ và bảng xếp hạng hiện tại.'
+                : 'Quét lại số quốc gia hợp lệ và thành tích lịch sử.'
             "
             @click="recalculateQuotas"
           >
@@ -575,10 +561,13 @@ async function resetTournament() {
               · tối đa {{ quota.available_country_count }} quốc gia</small
             ><small class="quota-reason">{{ quotaReason(quota) }}</small
             ><div class="quota-metrics">
-              <span>{{ quota.available_country_count }} quốc gia hợp lệ</span>
-              <span>{{ quota.strong_country_count || 0 }} quốc gia mạnh</span>
-              <span>60% quy mô DB</span>
-              <span>40% xếp hạng</span>
+              <span>WC {{ number(quota.world_cup_strength_points) }}</span>
+              <span
+                >Giải QG
+                {{ number(quota.national_cup_strength_points) }}</span
+              >
+              <span>{{ quota.championship_count || 0 }} cúp</span>
+              <span>{{ quota.medal_count || 0 }} huy chương</span>
             </div
             ><i
               :style="{
@@ -696,7 +685,7 @@ async function resetTournament() {
         <div
           v-if="
             admin &&
-            data.profile.quota_method !== QUOTA_METHOD
+            data.profile.quota_method !== 'CAPACITY_STRENGTH_HAMILTON'
           "
           class="quota-stale"
         >
@@ -761,8 +750,18 @@ async function resetTournament() {
                 {{ entry.current_club_name || "Cầu thủ tự do" }}</small
               >
             </div>
-            <span v-if="entry.seed_rank" class="seed-corner" :title="`Hạt giống số ${entry.seed_rank} theo thành tích quốc gia`">S{{ entry.seed_rank }}</span>
-            <em v-else class="auto-seed-text">Tự xếp khi lưu</em
+            <label v-if="admin && !data.profile.entries_locked_at"
+              ><small>Hạt giống</small
+              ><input
+                v-model.number="entry.seed_rank"
+                type="number"
+                min="1"
+                max="999"
+                class="input"
+                placeholder="—" /></label
+            ><em v-else>{{
+              entry.seed_rank ? `#${entry.seed_rank}` : "Không hạt giống"
+            }}</em
             ><button
               v-if="admin && !data.profile.entries_locked_at"
               class="remove"
@@ -870,8 +869,8 @@ async function resetTournament() {
                 >{{ confederationInfo(profile.confederation).name }} ·
                 {{
                   profile.world_seed_rank
-                    ? `hạng thành tích #${profile.world_seed_rank}`
-                    : "chưa có thành tích"
+                    ? `hạt giống #${profile.world_seed_rank}`
+                    : "chưa xếp hạt giống"
                 }}</em
               >
               <span
@@ -935,13 +934,13 @@ async function resetTournament() {
           >
             <div>
               <span
-                ><b><i v-if="match.home_seed_rank" class="inline-seed">S{{ match.home_seed_rank }}</i>{{ match.home_country_name || "Chờ xác định" }}</b
+                ><b>{{ match.home_country_name || "Chờ xác định" }}</b
                 ><small>{{ match.home_player_name || "—" }}</small></span
               ><strong>{{ match.home_score ?? "–" }}</strong>
             </div>
             <div>
               <span
-                ><b><i v-if="match.away_seed_rank" class="inline-seed">S{{ match.away_seed_rank }}</i>{{ match.away_country_name || "Chờ xác định" }}</b
+                ><b>{{ match.away_country_name || "Chờ xác định" }}</b
                 ><small>{{ match.away_player_name || "—" }}</small></span
               ><strong>{{ match.away_score ?? "–" }}</strong>
             </div>
@@ -1522,7 +1521,6 @@ async function resetTournament() {
 }
 .entry-grid > article {
   position: relative;
-  position: relative;
   display: grid;
   grid-template-columns: auto 1fr 78px auto;
   align-items: center;
@@ -1531,39 +1529,6 @@ async function resetTournament() {
   border: 1px solid var(--line);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.02);
-}
-.seed-corner {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  min-width: 27px;
-  height: 21px;
-  padding: 0 6px;
-  border: 1px solid rgba(255, 216, 102, 0.48);
-  border-radius: 7px;
-  display: grid;
-  place-items: center;
-  color: #ffe27c;
-  background: linear-gradient(145deg, rgba(109, 79, 15, 0.92), rgba(32, 24, 8, 0.94));
-  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.24);
-  font-size: 9px;
-  font-weight: 900;
-  letter-spacing: 0.04em;
-}
-.auto-seed-text { color: var(--muted); font-size: 9px; }
-.inline-seed {
-  display: inline-grid;
-  place-items: center;
-  min-width: 23px;
-  height: 18px;
-  margin-right: 6px;
-  border-radius: 6px;
-  color: #191100;
-  background: linear-gradient(135deg, #ffe27c, #dca52d);
-  font-size: 8px;
-  font-style: normal;
-  font-weight: 900;
-  vertical-align: middle;
 }
 .flag {
   width: 43px;

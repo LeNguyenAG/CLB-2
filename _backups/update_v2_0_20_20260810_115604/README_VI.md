@@ -1,19 +1,13 @@
-# Football Rank Manager 2.0.20
+# Football Rank Manager 2.0.18
 
 Phiên bản đầy đủ giữ toàn bộ quản lý CLB, cầu thủ, ví tiền, chuyển nhượng, sân vận động, giải CLB, World Cup 48, giải quốc gia 32 đội, danh hiệu, định giá và bảng xếp hạng.
 
-## Cập nhật 2.0.20
-
-- Tự dùng lại logo và thông số của mùa gần nhất khi tạo giải cùng hệ.
-- Tự xếp 8 hạt giống quốc gia và 4 hạt giống CLB theo thành tích.
-- Bỏ nhập hạt giống thủ công; hiển thị huy hiệu S1–S8/S1–S4 trên giao diện.
-
-## Cập nhật 2.0.19
+## Cập nhật 2.0.18
 
 - Làm lại màn hình FIFA Admin chọn 32 quốc gia, có lọc quốc gia, cầu thủ/CLB và châu lục.
 - Tự ẩn khu vực đủ suất, tự mở lại khi bỏ đại diện.
 - Đồng bộ châu lục theo thư viện quốc gia chuẩn ở cả frontend, backend và database.
-- Chia 32 suất theo dữ liệu nội bộ: 60% số quốc gia hợp lệ + 40% số quốc gia trong nhóm xếp hạng mạnh; chỉ dùng 6 châu lục và không dùng suất ngoài đời.
+- Chia 32 suất theo 80% quy mô + 20% World Cup/huy chương, có lợi suất giảm dần và biên công bằng.
 - Không cấp suất vượt số quốc gia hợp lệ; không bốc thăm bằng danh sách chưa lưu hoặc hạn ngạch cũ.
 - Xem README_UPDATE_V2_0_18.md để cập nhật.
 

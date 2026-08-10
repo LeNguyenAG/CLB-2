@@ -1,25 +1,5 @@
 # Changelog
 
-## 2.0.20 — Smart Season Presets & Automatic Seeds
-
-- Tự lấy lại logo và thông số từ mùa gần nhất của cùng hệ giải; không tự sao chép tên, mùa hoặc ngày thi đấu.
-- Giữ lại cấu hình riêng theo loại giải: CLB, World Cup 48 và giải quốc gia đặc biệt 32.
-- Bỏ toàn bộ ô nhập hạt giống thủ công khỏi luồng quản lý giải.
-- Tự chọn tối đa 8 hạt giống cho giải quốc gia theo huy chương, điểm và danh hiệu quốc gia.
-- Tự chọn tối đa 4 hạt giống cho giải CLB theo điểm và thành tích CLB.
-- Hiển thị huy hiệu S1–S8 hoặc S1–S4 trên danh sách đội, bảng đấu và nhánh đấu.
-- Bảo vệ 8 hạt giống quốc gia và 4 hạt giống CLB khỏi gặp nhau sớm khi số đội cho phép.
-
-## 2.0.19 — Database-based National 32 Quotas
-
-- Chỉ sửa cơ chế phân bổ và giao diện chọn đội của giải đặc biệt knockout 32 quốc gia.
-- Chỉ dùng AFC, CAF, CONCACAF, CONMEBOL, OFC và UEFA; loại `OTHER` khỏi thuật toán, API quét và bộ lọc chọn đội.
-- Đếm quốc gia hợp lệ trực tiếp từ dữ liệu có cầu thủ đại diện đang hoạt động trong database.
-- Xác định nhóm quốc gia mạnh theo `world_seed_rank` hiện tại trong database, không dùng hạn ngạch thực tế ngoài đời.
-- Phân bổ 60% theo số quốc gia hợp lệ và 40% theo số quốc gia trong top 32 nội bộ bằng phương pháp phần dư lớn nhất.
-- Mỗi châu lục có dữ liệu được tối thiểu 1 suất; không châu lục nào vượt số quốc gia có thể chọn; tổng luôn đúng 32.
-- Giữ nguyên logic nhánh đấu, tỷ số, phần thưởng, World Cup 48, giải CLB và các chức năng khác.
-
 ## 2.0.18 — Verified National 32 Admin Experience
 
 - Đồng bộ nguồn châu lục giữa thư viện quốc gia, API hạn ngạch, bộ lọc Admin và dữ liệu lưu giải; không còn tình trạng giao diện hiện một khu vực nhưng backend tính sang khu vực khác.
