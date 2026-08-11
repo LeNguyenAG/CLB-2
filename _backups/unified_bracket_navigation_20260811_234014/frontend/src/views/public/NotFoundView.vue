@@ -1,0 +1,1 @@
+<template><div class="container page"><div class="glass empty"><div style="font-size:70px">⚽</div><h1>Không tìm thấy trang</h1><p>Đường dẫn không tồn tại hoặc đã được thay đổi.</p><RouterLink to="/" class="btn btn-primary" style="margin-top:18px">Về trang chủ</RouterLink></div></div></template>

@@ -28,6 +28,7 @@ const {
 
 const { finalizeCompetitionAwards } = require('./smart-awards');
 const { refreshNationalPerformanceRanks, assignNationalTournamentSeeds } = require('./automatic-seeding');
+const { synchronizeNationalProfile } = require('./national-profile-sync');
 
 const router = express.Router();
 
@@ -118,7 +119,7 @@ async function getWorldCupProfile(competitionId, connection = undefined) {
 
 async function worldCupPayload(competitionId) {
   const profile = await getWorldCupProfile(competitionId);
-  const [entries, groups, groupMembers, standings, rounds, matches, qualified, results, upsetRewards, awards, rewardRules] = await Promise.all([
+  const [entries, groups, groupMembers, standings, rounds, matches, matchLinks, qualified, results, upsetRewards, awards, rewardRules, historyRows] = await Promise.all([
     query(
       `SELECT wce.*, p.full_name AS player_name, p.photo_url, p.position,
               c.name AS current_club_name
@@ -146,17 +147,29 @@ async function worldCupPayload(competitionId) {
     query(
       `SELECT m.*, g.group_code, r.round_code, r.round_name, r.round_order,
               he.country_name AS home_country_name, he.country_code AS home_country_code, he.flag_url AS home_flag_url,he.seed_rank AS home_seed_rank,
+              hp.full_name AS home_player_name,
               ae.country_name AS away_country_name, ae.country_code AS away_country_code, ae.flag_url AS away_flag_url,ae.seed_rank AS away_seed_rank,
-              we.country_name AS winner_country_name, le.country_name AS loser_country_name
+              ap.full_name AS away_player_name,
+              we.country_name AS winner_country_name, we.seed_rank AS winner_seed_rank,
+              le.country_name AS loser_country_name
        FROM world_cup_matches m
        LEFT JOIN world_cup_groups g ON g.id = m.group_id
        LEFT JOIN world_cup_rounds r ON r.id = m.round_id
        LEFT JOIN world_cup_entries he ON he.id = m.home_entry_id
+       LEFT JOIN players hp ON hp.id = he.player_id
        LEFT JOIN world_cup_entries ae ON ae.id = m.away_entry_id
+       LEFT JOIN players ap ON ap.id = ae.player_id
        LEFT JOIN world_cup_entries we ON we.id = m.winner_entry_id
        LEFT JOIN world_cup_entries le ON le.id = m.loser_entry_id
        WHERE m.competition_id = ?
        ORDER BY m.stage_type, COALESCE(g.display_order, r.round_order), m.match_no`,
+      [competitionId]
+    ),
+    query(
+      `SELECT l.source_match_id,l.source_result,l.target_match_id,l.target_slot
+       FROM world_cup_match_links l
+       JOIN world_cup_matches m ON m.id=l.source_match_id
+       WHERE m.competition_id=?`,
       [competitionId]
     ),
     query(
@@ -194,7 +207,19 @@ async function worldCupPayload(competitionId) {
        ORDER BY pa.awarded_at DESC`,
       [competitionId]
     ),
-    query('SELECT * FROM national_competition_reward_rules WHERE competition_id=? ORDER BY placement_from', [competitionId])
+    query('SELECT * FROM national_competition_reward_rules WHERE competition_id=? ORDER BY placement_from', [competitionId]),
+    query(
+      `SELECT e.country_code,e.country_name,r.placement,r.medal_type,
+              c.id AS competition_id,c.name AS competition_name,
+              s.id AS season_id,s.name AS season_name,s.sequence_no
+       FROM world_cup_results r
+       JOIN world_cup_entries e ON e.id=r.entry_id
+       JOIN competitions c ON c.id=r.competition_id
+       JOIN seasons s ON s.id=c.season_id
+       WHERE c.series_id=? AND c.id<>? AND s.sequence_no<? AND r.placement<=3
+       ORDER BY s.sequence_no DESC,r.placement`,
+      [profile.series_id, competitionId, profile.sequence_no]
+    )
   ]);
 
   const bestThirds = standings
@@ -205,6 +230,21 @@ async function worldCupPayload(competitionId) {
       || Number(b.wins) - Number(a.wins)
       || Number(a.seed_rank || 9999) - Number(b.seed_rank || 9999));
 
+  const latestPodiumSeason = historyRows.length
+    ? Math.max(...historyRows.map((row) => Number(row.sequence_no || 0)))
+    : null;
+  const previousPodium = latestPodiumSeason == null
+    ? []
+    : historyRows.filter((row) => Number(row.sequence_no) === latestPodiumSeason);
+  const historicalAchievements = Object.values(historyRows.reduce((map, row) => {
+    const code = row.country_code;
+    if (!map[code]) map[code] = { country_code: code, country_name: row.country_name, champion_count: 0, runner_up_count: 0, third_count: 0 };
+    if (Number(row.placement) === 1) map[code].champion_count += 1;
+    if (Number(row.placement) === 2) map[code].runner_up_count += 1;
+    if (Number(row.placement) === 3) map[code].third_count += 1;
+    return map;
+  }, {}));
+
   return {
     profile,
     entries,
@@ -214,11 +254,14 @@ async function worldCupPayload(competitionId) {
     bestThirds,
     rounds,
     matches,
+    matchLinks,
     qualified,
     results,
     upsetRewards,
     awards,
-    rewardRules
+    rewardRules,
+    previousPodium,
+    historicalAchievements
   };
 }
 
@@ -475,24 +518,30 @@ router.put('/world-cup/national-profiles/:playerId', authenticate, requireAdmin,
   );
   if (!player) throw new ApiError(404, 'Không tìm thấy cầu thủ đang hoạt động.');
 
-  await query(
-    `INSERT INTO player_national_profiles(
-       player_id, country_catalog_id, country_name, country_code,
-       flag_url, confederation, world_seed_rank, is_active
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, TRUE)
-     ON DUPLICATE KEY UPDATE
-       country_catalog_id = VALUES(country_catalog_id),
-       country_name = VALUES(country_name),
-       country_code = VALUES(country_code),
-       flag_url = VALUES(flag_url),
-       confederation = VALUES(confederation),
-       world_seed_rank = VALUES(world_seed_rank),
-       is_active = TRUE`,
-    [playerId, country.id, country.name_vi, country.fifa_code,
-      country.flag_url, country.confederation, null]
-  );
-  await refreshNationalPerformanceRanks();
-
+  const sync = await transaction(async (connection) => {
+    await query(
+      `INSERT INTO player_national_profiles(
+         player_id, country_catalog_id, country_name, country_code,
+         flag_url, confederation, world_seed_rank, is_active
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, TRUE)
+       ON DUPLICATE KEY UPDATE
+         country_catalog_id = VALUES(country_catalog_id),
+         country_name = VALUES(country_name),
+         country_code = VALUES(country_code),
+         flag_url = VALUES(flag_url),
+         confederation = VALUES(confederation),
+         is_active = TRUE`,
+      [playerId, country.id, country.name_vi, country.fifa_code,
+        country.flag_url, country.confederation, null],
+      connection
+    );
+    await refreshNationalPerformanceRanks(connection);
+    return synchronizeNationalProfile(
+      playerId,
+      country,
+      connection
+    );
+  });
   await audit({
     userId: req.user.id,
     actionCode: 'UPSERT_PLAYER_NATIONAL_PROFILE',
@@ -524,7 +573,7 @@ router.put('/world-cup/national-profiles/:playerId', authenticate, requireAdmin,
      WHERE p.id = ?`,
     [playerId]
   );
-  return ok(res, saved);
+  return ok(res, { ...saved, sync });
 });
 
 router.delete('/world-cup/national-profiles/:playerId', authenticate, requireAdmin, async (req, res) => {

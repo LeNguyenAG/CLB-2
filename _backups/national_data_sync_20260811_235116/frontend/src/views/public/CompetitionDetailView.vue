@@ -1,0 +1,487 @@
+<script setup>
+import { computed, onMounted, ref } from "vue";
+import { useRoute } from "vue-router";
+import {
+  Trophy,
+  CalendarDays,
+  Users,
+  Coins,
+  Medal,
+  Flame,
+  Star,
+} from "@lucide/vue";
+import { api } from "../../services/api";
+import { date, money, number } from "../../utils";
+import LoadingBlock from "../../components/LoadingBlock.vue";
+import WorldCupShowcase from "../../components/WorldCupShowcase.vue";
+import NationalCupPanel from "../../components/NationalCupPanel.vue";
+import StatusBadge from "../../components/StatusBadge.vue";
+import EntityAvatar from "../../components/EntityAvatar.vue";
+import GroupStandings from "../../components/GroupStandings.vue";
+import TournamentBracket from "../../components/TournamentBracket.vue";
+import EmptyState from "../../components/EmptyState.vue";
+const route = useRoute(),
+  loading = ref(true),
+  detail = ref(null),
+  groups = ref({ groups: [], members: [], standings: [] }),
+  bracket = ref({ rounds: [], matches: [] }),
+  matches = ref([]),
+  performance = ref({ leaderboard: [] }),
+  active = ref("overview");
+const standingsByGroup = computed(() =>
+  Object.fromEntries(
+    (groups.value.groups || []).map((g) => [
+      g.id,
+      (groups.value.standings || []).filter(
+        (r) => Number(r.group_id) === Number(g.id),
+      ),
+    ]),
+  ),
+);
+async function load() {
+  loading.value = true;
+  try {
+    const id = route.params.id;
+    const [d, g, b, m, p] = await Promise.all([
+      api.get(`/competitions/${id}`, null, { auth: false }),
+      api.get(`/competitions/${id}/groups`, null, { auth: false }),
+      api.get(`/competitions/${id}/bracket`, null, { auth: false }),
+      api.get(`/competitions/${id}/matches`, null, { auth: false }),
+      api.get(`/public/competitions/${id}/performance`, null, { auth: false }),
+    ]);
+    detail.value = d.data;
+    groups.value = g.data;
+    bracket.value = b.data;
+    matches.value = m.data;
+    performance.value = p.data;
+  } finally {
+    loading.value = false;
+  }
+}
+onMounted(load);
+</script>
+<template>
+  <div class="container page">
+    <LoadingBlock v-if="loading" /><WorldCupShowcase
+      v-else-if="detail?.competition?.competition_mode === 'WORLD_CUP_48'"
+      :competition-id="Number(route.params.id)"
+    /><NationalCupPanel
+      v-else-if="detail?.competition?.competition_mode === 'NATIONAL_SPECIAL_32'"
+      :competition-id="Number(route.params.id)"
+    /><template v-else-if="detail"
+      ><section class="competition-hero glass">
+        <EntityAvatar
+          :src="detail.competition.logo_url"
+          :name="detail.competition.name"
+          :size="90"
+        />
+        <div>
+          <span class="eyebrow"
+            >{{ detail.competition.series_name }} ·
+            {{ detail.competition.season_name }}</span
+          >
+          <h1>{{ detail.competition.name }}</h1>
+          <div class="hero-meta">
+            <StatusBadge :status="detail.competition.status" /><span
+              ><CalendarDays :size="15" />{{
+                date(detail.competition.starts_on)
+              }}
+              – {{ date(detail.competition.ends_on) }}</span
+            >
+          </div>
+        </div>
+        <div class="coefficient">
+          <small>Hệ số giải</small><b>x{{ detail.competition.coefficient }}</b>
+        </div>
+      </section>
+      <div class="grid-4 metrics">
+        <article class="glass stat-card">
+          <Users :size="18" class="text-primary" />
+          <div class="stat-value">{{ detail.participants.length }}</div>
+          <div class="stat-label">Đội tham dự</div>
+        </article>
+        <article class="glass stat-card">
+          <Trophy :size="18" class="text-yellow" />
+          <div class="stat-value">
+            {{ matches.filter((m) => m.status === "FINISHED").length }}
+          </div>
+          <div class="stat-label">Trận hoàn tất</div>
+        </article>
+        <article class="glass stat-card">
+          <Coins :size="18" class="text-green" />
+          <div class="stat-value">
+            {{
+              money(
+                detail.prizes.reduce(
+                  (s, p) => s + Number(p.prize_amount || 0),
+                  0,
+                ),
+                true,
+              )
+            }}
+          </div>
+          <div class="stat-label">Tổng quỹ thưởng</div>
+        </article>
+        <article class="glass stat-card">
+          <Medal :size="18" class="text-primary" />
+          <div class="stat-value">{{ detail.results.length }}</div>
+          <div class="stat-label">Thứ hạng đã chốt</div>
+        </article>
+      </div>
+      <div class="tabs">
+        <button
+          v-for="tab in [
+            ['overview', 'Tổng quan'],
+            ['groups', 'Vòng bảng'],
+            ['bracket', 'Nhánh đấu'],
+            ['matches', 'Trận đấu'],
+            ['performance', 'Hiệu suất'],
+            ['prizes', 'Giải thưởng'],
+          ]"
+          :key="tab[0]"
+          class="btn"
+          :class="{ active: active === tab[0] }"
+          @click="active = tab[0]"
+        >
+          {{ tab[1] }}
+        </button>
+      </div>
+      <section v-if="active === 'overview'" class="grid-2">
+        <article class="glass card">
+          <div class="section-title">
+            <div>
+              <span class="eyebrow">Đội tham dự</span>
+              <h2>Danh sách CLB</h2>
+            </div>
+          </div>
+          <div class="participant-grid">
+            <RouterLink
+              v-for="p in detail.participants"
+              :key="p.id"
+              :to="`/clubs/${p.club_id}`"
+              class="participant"
+              ><EntityAvatar :src="p.logo_url" :name="p.club_name" :size="42" />
+              <div>
+                <b>{{ p.club_name }}</b>
+                <p v-if="p.seed_no"><span class="seed-badge">S{{ p.seed_no }}</span> Hạt giống theo thành tích</p>
+                <p v-else>Không thuộc top 4 hạt giống</p>
+              </div>
+              <StatusBadge :status="p.registration_status"
+            /></RouterLink>
+          </div>
+        </article>
+        <article class="glass card">
+          <div class="section-title">
+            <div>
+              <span class="eyebrow">Kết quả chung cuộc</span>
+              <h2>Vinh danh</h2>
+            </div>
+          </div>
+          <EmptyState
+            v-if="!detail.results.length"
+            message="Thứ hạng sẽ xuất hiện sau khi Admin FIFA kết thúc giải."
+          />
+          <div v-else class="result-list">
+            <article v-for="r in detail.results" :key="r.id">
+              <span class="placement">{{
+                r.placement === 1 ? "🥇" : r.placement === 2 ? "🥈" : "🥉"
+              }}</span
+              ><EntityAvatar :src="r.logo_url" :name="r.club_name" :size="40" />
+              <div>
+                <b>{{ r.club_name }}</b>
+                <p>
+                  Hạng {{ r.placement
+                  }}{{ r.is_joint_placement ? " · Đồng hạng" : "" }}
+                </p>
+              </div>
+            </article>
+          </div>
+        </article>
+      </section>
+      <section v-else-if="active === 'groups'">
+        <EmptyState
+          v-if="!groups.groups.length"
+          title="Giải không có vòng bảng"
+        />
+        <div v-else class="grid-2">
+          <GroupStandings
+            v-for="g in groups.groups"
+            :key="g.id"
+            :group="g"
+            :rows="standingsByGroup[g.id] || []"
+            :advance-per-group="
+              Number(detail.competition.advance_per_group || 0)
+            "
+            :qualified-ids="(bracket.qualified || []).map((q) => q.club_id)"
+          />
+        </div>
+      </section>
+      <section v-else-if="active === 'bracket'" class="glass card">
+        <TournamentBracket
+          :rounds="bracket.rounds"
+          :matches="bracket.matches"
+        />
+      </section>
+      <section v-else-if="active === 'matches'" class="glass card">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Vòng</th>
+                <th>Trận đấu</th>
+                <th>Tỷ số</th>
+                <th>Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="m in matches" :key="m.id">
+                <td>
+                  {{
+                    m.group_code
+                      ? `Bảng ${m.group_code}`
+                      : m.round_name || m.stage_type
+                  }}
+                </td>
+                <td>
+                  <div class="match-pair">
+                    <span>{{ m.home_club_name || "Chờ xác định" }}</span
+                    ><span>vs</span
+                    ><span>{{ m.away_club_name || "Chờ xác định" }}</span
+                    ><Flame
+                      v-if="m.highlighted_upset"
+                      :size="15"
+                      class="text-yellow"
+                    />
+                  </div>
+                </td>
+                <td>
+                  <b>{{ m.home_score ?? "-" }} : {{ m.away_score ?? "-" }}</b>
+                </td>
+                <td><StatusBadge :status="m.status" /></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section v-else-if="active === 'performance'" class="glass card">
+        <div class="section-title">
+          <div>
+            <span class="eyebrow"><Star :size="14" /> Performance Index</span>
+            <h2>Cầu thủ xuất sắc của giải</h2>
+            <p>Điểm được tính theo vị trí và thống kê trận đấu đã xác nhận.</p>
+          </div>
+        </div>
+        <EmptyState
+          v-if="!performance.leaderboard?.length"
+          title="Chưa có BXH hiệu suất"
+        />
+        <div v-else class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Hạng</th>
+                <th>Cầu thủ</th>
+                <th>CLB</th>
+                <th>Điểm TB</th>
+                <th>Trận</th>
+                <th>MVP trận</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="(player, index) in performance.leaderboard"
+                :key="player.player_id"
+              >
+                <td>
+                  <b>#{{ index + 1 }}</b>
+                </td>
+                <td>
+                  <RouterLink
+                    :to="`/players/${player.player_id}`"
+                    class="entity"
+                    ><EntityAvatar
+                      :src="player.photo_url"
+                      :name="player.full_name"
+                      :size="36"
+                      round
+                    /><b>{{ player.full_name }}</b></RouterLink
+                  >
+                </td>
+                <td>{{ player.club_name }}</td>
+                <td>
+                  <b class="rating-public">{{
+                    number(player.average_rating, 2)
+                  }}</b>
+                </td>
+                <td>{{ player.appearances }}</td>
+                <td>{{ player.match_mvp_count || 0 }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section v-else class="grid-2">
+        <article
+          v-for="p in detail.prizes"
+          :key="p.id"
+          class="glass card prize-card"
+        >
+          <span class="medal-big">{{
+            p.medal_type === "GOLD"
+              ? "🥇"
+              : p.medal_type === "SILVER"
+                ? "🥈"
+                : p.medal_type === "BRONZE"
+                  ? "🥉"
+                  : "🏆"
+          }}</span>
+          <div>
+            <span class="eyebrow">{{ p.placement_label }}</span>
+            <h3>{{ money(p.prize_amount) }}</h3>
+            <p>
+              {{ p.base_ranking_points }} điểm cơ bản × hệ số
+              {{ detail.competition.coefficient }}
+            </p>
+          </div>
+        </article>
+      </section></template
+    >
+  </div>
+</template>
+<style scoped>
+.competition-hero {
+  padding: 26px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 22px;
+}
+.competition-hero h1 {
+  font-size: clamp(29px, 4vw, 48px);
+  margin: 7px 0;
+}
+.hero-meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.hero-meta span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.coefficient {
+  text-align: center;
+  padding: 15px 20px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+}
+.coefficient small,
+.coefficient b {
+  display: block;
+}
+.coefficient small {
+  color: var(--muted);
+}
+.coefficient b {
+  font: 800 28px Manrope;
+  color: var(--cyan);
+  margin-top: 5px;
+}
+.metrics {
+  margin: 20px 0;
+}
+.tabs {
+  display: flex;
+  gap: 8px;
+  overflow: auto;
+  margin-bottom: 20px;
+  padding-bottom: 4px;
+}
+.tabs .active {
+  background: linear-gradient(135deg, var(--primary), var(--primary-2));
+  border-color: transparent;
+}
+.participant-grid,
+.result-list {
+  display: grid;
+  gap: 9px;
+}
+.participant {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.participant p,
+.result-list p {
+  font-size: 11px;
+}
+.seed-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 24px;
+  height: 18px;
+  margin-right: 4px;
+  border-radius: 6px;
+  color: #191100;
+  background: linear-gradient(135deg, #ffe27c, #dca52d);
+  font-size: 8px;
+  font-weight: 900;
+}
+.result-list article {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.placement {
+  font-size: 26px;
+}
+.match-pair {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.prize-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.medal-big {
+  font-size: 50px;
+}
+.prize-card h3 {
+  font-size: 26px;
+  margin: 5px 0;
+}
+.rating-public {
+  color: var(--yellow);
+  font-size: 16px;
+}
+.entity {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+@media (max-width: 650px) {
+  .competition-hero {
+    grid-template-columns: auto 1fr;
+  }
+  .coefficient {
+    grid-column: 1/-1;
+    text-align: left;
+  }
+  .metrics {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+</style>

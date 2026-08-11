@@ -151,7 +151,17 @@ async function saveProfile() {
     if (index >= 0) rows.value.splice(index, 1, response.data)
     localStorage.removeItem(draftKey(form.value.player_id))
     selectPlayer(response.data, false)
-    uiStore.notify(`Đã lưu cố định: ${response.data.full_name} ↔ ${response.data.country_name}.`)
+    const worldCupUpdated = Number(response.data.sync?.world_cup_48?.updated || 0)
+    const knockoutUpdated = Number(response.data.sync?.knockout_32?.updated || 0)
+    const conflicts = (response.data.sync?.world_cup_48?.conflicts?.length || 0)
+      + (response.data.sync?.knockout_32?.conflicts?.length || 0)
+    const syncMessage = worldCupUpdated || knockoutUpdated
+      ? ` Đã đồng bộ ${worldCupUpdated} World Cup 48 và ${knockoutUpdated} giải knockout 32.`
+      : ' Hồ sơ mới đã có ngay trong danh sách chọn của cả hai loại giải.'
+    uiStore.notify(
+      `Đã lưu cố định: ${response.data.full_name} ↔ ${response.data.country_name}.${syncMessage}${conflicts ? ` Có ${conflicts} giải bỏ qua vì quốc gia đã được đại diện bởi cầu thủ khác.` : ''}`,
+      conflicts ? 'warning' : 'success'
+    )
   } catch (error) { uiStore.notify(error.message, 'error') }
   finally { busy.value = false }
 }
