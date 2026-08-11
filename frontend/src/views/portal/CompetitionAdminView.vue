@@ -26,6 +26,7 @@ import StatusBadge from "../../components/StatusBadge.vue";
 import EntityAvatar from "../../components/EntityAvatar.vue";
 import GroupStandings from "../../components/GroupStandings.vue";
 import TournamentBracket from "../../components/TournamentBracket.vue";
+import ClubMascot from "../../components/ClubMascot.vue";
 import EmptyState from "../../components/EmptyState.vue";
 import BaseModal from "../../components/BaseModal.vue";
 import ConfirmDialog from "../../components/ConfirmDialog.vue";
@@ -653,10 +654,10 @@ async function saveSpecial() {
               <tr v-for="p in detail.participants" :key="p.id">
                 <td>
                   <div class="entity">
-                    <EntityAvatar
+                    <ClubMascot v-if="p.mascot_key" :mascot-key="p.mascot_key" :fallback-name="p.club_name" :size="42" animated /><EntityAvatar v-else
                       :src="p.logo_url"
                       :name="p.club_name"
-                      :size="38"
+                      :size="42"
                     /><span
                       ><b>{{ p.club_name }}</b
                       ><small v-if="p.roster_warning" class="roster-warning"
@@ -837,6 +838,11 @@ async function saveSpecial() {
         <TournamentBracket
           :rounds="bracket.rounds"
           :matches="bracket.matches"
+          :links="bracket.links"
+          :historical-achievements="bracket.historicalAchievements"
+          :previous-podium="bracket.previousPodium"
+          :admin="isAdmin"
+          @result="openResult"
         />
       </section>
       <section v-else-if="active === 'matches'" class="glass card">
@@ -868,11 +874,11 @@ async function saveSpecial() {
                       : m.round_name || m.stage_type
                   }}
                 </td>
-                <td>{{ m.home_club_name || "Chờ xác định" }}</td>
+                <td><div class="match-club"><ClubMascot v-if="m.home_mascot_key" :mascot-key="m.home_mascot_key" :fallback-name="m.home_club_name" :size="34"/><EntityAvatar v-else :src="m.home_logo" :name="m.home_club_name || 'CLB'" :size="34"/><b>{{ m.home_club_name || "Chờ xác định" }}</b></div></td>
                 <td>
                   <b>{{ m.home_score ?? "-" }} : {{ m.away_score ?? "-" }}</b>
                 </td>
-                <td>{{ m.away_club_name || "Chờ xác định" }}</td>
+                <td><div class="match-club"><ClubMascot v-if="m.away_mascot_key" :mascot-key="m.away_mascot_key" :fallback-name="m.away_club_name" :size="34"/><EntityAvatar v-else :src="m.away_logo" :name="m.away_club_name || 'CLB'" :size="34"/><b>{{ m.away_club_name || "Chờ xác định" }}</b></div></td>
                 <td><StatusBadge :status="m.status" /></td>
                 <td v-if="isAdmin">
                   <div class="actions">
@@ -1789,6 +1795,8 @@ async function saveSpecial() {
   grid-template-columns: 1.2fr 0.6fr 0.6fr 1fr 0.7fr 0.8fr;
   gap: 8px;
 }
+.match-club { display:flex;align-items:center;gap:8px;min-width:180px }
+.match-club b { max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap }
 @media (max-width: 900px) {
   .overview-grid,
   .finish-grid {

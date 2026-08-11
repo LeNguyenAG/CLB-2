@@ -89,6 +89,7 @@ const PARTICIPANT_ROSTER_SELECT = `
          ) AS roster_warning
   FROM (
     SELECT cp.*, c.code AS club_code, c.name AS club_name, c.logo_url,
+           SUBSTRING_INDEX(ms.setting_value, '|', 1) AS mascot_key,
            w.balance AS club_balance,
            (SELECT COUNT(*) FROM players p
             WHERE p.club_id = cp.club_id AND p.status IN ('ACTIVE','TRANSFER_LISTED')) AS official_roster_count,
@@ -102,6 +103,7 @@ const PARTICIPANT_ROSTER_SELECT = `
     FROM competition_participants cp
     JOIN clubs c ON c.id = cp.club_id
     LEFT JOIN wallets w ON w.club_id = c.id AND w.wallet_type = 'CLUB'
+    LEFT JOIN system_settings ms ON ms.setting_key = CONCAT('CLUB_MASCOT_', c.id)
   ) enriched`;
 
 /* ========================================================================== */
@@ -284,7 +286,10 @@ router.get('/competitions/:id', optionalAuthenticate, async (req, res) => {
     query('SELECT * FROM competition_rounds WHERE competition_id = ? ORDER BY round_order', [id]),
     query('SELECT * FROM competition_prize_rules WHERE competition_id = ? ORDER BY placement_from', [id]),
     first('SELECT * FROM competition_special_reward_rules WHERE competition_id = ?', [id]),
-    query(`SELECT cr.*, c.name AS club_name FROM competition_results cr JOIN clubs c ON c.id = cr.club_id
+    query(`SELECT cr.*, c.name AS club_name, c.logo_url,
+                  SUBSTRING_INDEX(ms.setting_value, '|', 1) AS mascot_key
+           FROM competition_results cr JOIN clubs c ON c.id = cr.club_id
+           LEFT JOIN system_settings ms ON ms.setting_key = CONCAT('CLUB_MASCOT_', c.id)
            WHERE cr.competition_id = ? ORDER BY cr.placement, c.name`, [id])
   ]);
   return ok(res, { competition, participants, groups, rounds, prizes, specialRule, results });
@@ -578,14 +583,18 @@ router.get('/competitions/:id/groups', optionalAuthenticate, async (req, res) =>
   const competitionId = parsePositiveInt(req.params.id);
   const groups = await query('SELECT * FROM competition_groups WHERE competition_id = ? ORDER BY display_order', [competitionId]);
   const members = await query(
-    `SELECT gm.*, g.group_code, c.name AS club_name, c.logo_url
+    `SELECT gm.*, g.group_code, c.name AS club_name, c.logo_url,
+            SUBSTRING_INDEX(ms.setting_value, '|', 1) AS mascot_key
      FROM competition_group_members gm JOIN competition_groups g ON g.id = gm.group_id JOIN clubs c ON c.id = gm.club_id
+     LEFT JOIN system_settings ms ON ms.setting_key = CONCAT('CLUB_MASCOT_', c.id)
      WHERE g.competition_id = ? ORDER BY g.display_order, gm.slot_no`, [competitionId]
   );
   const standings = await query(
-    `SELECT standings.*,cp.seed_no
+    `SELECT standings.*,cp.seed_no,
+            SUBSTRING_INDEX(ms.setting_value, '|', 1) AS mascot_key
      FROM v_group_standings standings
      LEFT JOIN competition_participants cp ON cp.competition_id=standings.competition_id AND cp.club_id=standings.club_id
+     LEFT JOIN system_settings ms ON ms.setting_key = CONCAT('CLUB_MASCOT_', standings.club_id)
      WHERE standings.competition_id=? ORDER BY standings.group_id,standings.group_rank`,
     [competitionId]
   );
@@ -658,14 +667,18 @@ router.post('/competitions/:id/groups/finalize', authenticate, requireAdmin, asy
 
 router.get('/competitions/:id/bracket', async (req, res) => {
   const competitionId = parsePositiveInt(req.params.id);
-  const [rounds, matches, links, qualified, pairingRules] = await Promise.all([
+  const [rounds, matches, links, qualified, pairingRules, historicalAchievements, previousPodium] = await Promise.all([
     query('SELECT * FROM competition_rounds WHERE competition_id = ? ORDER BY round_order', [competitionId]),
     query(`SELECT m.*, hc.name AS home_club_name, hc.logo_url AS home_logo,hp.seed_no AS home_seed_no,
+                  SUBSTRING_INDEX(hms.setting_value, '|', 1) AS home_mascot_key,
                   ac.name AS away_club_name, ac.logo_url AS away_logo,ap.seed_no AS away_seed_no,
+                  SUBSTRING_INDEX(ams.setting_value, '|', 1) AS away_mascot_key,
                   wc.name AS winner_club_name, lc.name AS loser_club_name
            FROM matches m LEFT JOIN clubs hc ON hc.id = m.home_club_id LEFT JOIN clubs ac ON ac.id = m.away_club_id
            LEFT JOIN competition_participants hp ON hp.competition_id=m.competition_id AND hp.club_id=m.home_club_id
            LEFT JOIN competition_participants ap ON ap.competition_id=m.competition_id AND ap.club_id=m.away_club_id
+           LEFT JOIN system_settings hms ON hms.setting_key = CONCAT('CLUB_MASCOT_', hc.id)
+           LEFT JOIN system_settings ams ON ams.setting_key = CONCAT('CLUB_MASCOT_', ac.id)
            LEFT JOIN clubs wc ON wc.id = m.winner_club_id LEFT JOIN clubs lc ON lc.id = m.loser_club_id
            WHERE m.competition_id = ? AND m.stage_type = 'KNOCKOUT'
            ORDER BY m.round_id, m.match_no, m.leg_no`, [competitionId]),
@@ -675,9 +688,32 @@ router.get('/competitions/:id/bracket', async (req, res) => {
            WHERE qt.competition_id = ? ORDER BY qt.qualification_type, g.display_order, qt.group_rank`, [competitionId]),
     query(`SELECT r.*, hg.group_code AS home_group_code, ag.group_code AS away_group_code
            FROM knockout_pairing_rules r JOIN competition_groups hg ON hg.id = r.home_group_id
-           JOIN competition_groups ag ON ag.id = r.away_group_id WHERE r.competition_id = ? ORDER BY r.match_no`, [competitionId])
+           JOIN competition_groups ag ON ag.id = r.away_group_id WHERE r.competition_id = ? ORDER BY r.match_no`, [competitionId]),
+    query(`SELECT cr.club_id,
+                   SUM(cr.placement = 1) AS champion_count,
+                   SUM(cr.placement = 2) AS runner_up_count,
+                   SUM(cr.placement = 3) AS third_count
+            FROM competition_results cr
+            JOIN competitions oldc ON oldc.id = cr.competition_id
+            JOIN competitions currentc ON currentc.id = ?
+            WHERE oldc.series_id = currentc.series_id AND oldc.id <> currentc.id
+            GROUP BY cr.club_id`, [competitionId]),
+    query(`SELECT cr.club_id, cr.placement
+            FROM competition_results cr
+            WHERE cr.competition_id = (
+              SELECT oldc.id
+              FROM competitions oldc
+              JOIN competitions currentc ON currentc.id = ?
+              JOIN seasons olds ON olds.id = oldc.season_id
+              JOIN seasons currents ON currents.id = currentc.season_id
+              WHERE oldc.series_id = currentc.series_id
+                AND oldc.id <> currentc.id
+                AND olds.sequence_no <= currents.sequence_no
+                AND oldc.status = 'FINISHED'
+              ORDER BY olds.sequence_no DESC, oldc.created_at DESC LIMIT 1
+            ) AND cr.placement IN (1,2,3)`, [competitionId])
   ]);
-  return ok(res, { rounds, matches, links, qualified, pairingRules });
+  return ok(res, { rounds, matches, links, qualified, pairingRules, historicalAchievements, previousPodium });
 });
 
 router.post('/competitions/:id/bracket', authenticate, requireAdmin, async (req, res) => {
@@ -812,13 +848,17 @@ router.get('/competitions/:id/matches', async (req, res) => {
   return ok(res, await query(
     `SELECT m.*, g.group_code, r.round_name, r.round_order,
             hc.name AS home_club_name, hc.logo_url AS home_logo,hp.seed_no AS home_seed_no,
+            SUBSTRING_INDEX(hms.setting_value, '|', 1) AS home_mascot_key,
             ac.name AS away_club_name, ac.logo_url AS away_logo,ap.seed_no AS away_seed_no,
+            SUBSTRING_INDEX(ams.setting_value, '|', 1) AS away_mascot_key,
             wc.name AS winner_club_name, lc.name AS loser_club_name
      FROM matches m LEFT JOIN competition_groups g ON g.id = m.group_id
      LEFT JOIN competition_rounds r ON r.id = m.round_id
      LEFT JOIN clubs hc ON hc.id = m.home_club_id LEFT JOIN clubs ac ON ac.id = m.away_club_id
      LEFT JOIN competition_participants hp ON hp.competition_id=m.competition_id AND hp.club_id=m.home_club_id
      LEFT JOIN competition_participants ap ON ap.competition_id=m.competition_id AND ap.club_id=m.away_club_id
+     LEFT JOIN system_settings hms ON hms.setting_key = CONCAT('CLUB_MASCOT_', hc.id)
+     LEFT JOIN system_settings ams ON ams.setting_key = CONCAT('CLUB_MASCOT_', ac.id)
      LEFT JOIN clubs wc ON wc.id = m.winner_club_id LEFT JOIN clubs lc ON lc.id = m.loser_club_id
      WHERE m.competition_id = ? ${extra}
      ORDER BY m.stage_type, COALESCE(g.display_order, r.round_order), m.match_no, m.leg_no`, params
@@ -922,7 +962,10 @@ router.put('/competitions/:id/special-reward-rule', authenticate, requireAdmin, 
 
 router.get('/competitions/:id/results', async (req, res) => {
   const competitionId = parsePositiveInt(req.params.id);
-  return ok(res, await query(`SELECT cr.*, c.name AS club_name, c.logo_url FROM competition_results cr JOIN clubs c ON c.id = cr.club_id
+  return ok(res, await query(`SELECT cr.*, c.name AS club_name, c.logo_url,
+      SUBSTRING_INDEX(ms.setting_value, '|', 1) AS mascot_key
+    FROM competition_results cr JOIN clubs c ON c.id = cr.club_id
+    LEFT JOIN system_settings ms ON ms.setting_key = CONCAT('CLUB_MASCOT_', c.id)
     WHERE cr.competition_id = ? ORDER BY cr.placement, c.name`, [competitionId]));
 });
 

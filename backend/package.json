@@ -1,6 +1,6 @@
 {
   "name": "football-rank-manager-backend",
-  "version": "2.0.19",
+  "version": "2.0.22",
   "private": true,
   "description": "Express API đồng bộ với database football_rank_manager cho website xếp hạng CLB, cầu thủ và giải đấu.",
   "main": "server.js",

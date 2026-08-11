@@ -19,6 +19,7 @@ import StatusBadge from "../../components/StatusBadge.vue";
 import EntityAvatar from "../../components/EntityAvatar.vue";
 import GroupStandings from "../../components/GroupStandings.vue";
 import TournamentBracket from "../../components/TournamentBracket.vue";
+import ClubMascot from "../../components/ClubMascot.vue";
 import EmptyState from "../../components/EmptyState.vue";
 const route = useRoute(),
   loading = ref(true),
@@ -160,7 +161,7 @@ onMounted(load);
               :key="p.id"
               :to="`/clubs/${p.club_id}`"
               class="participant"
-              ><EntityAvatar :src="p.logo_url" :name="p.club_name" :size="42" />
+              ><ClubMascot v-if="p.mascot_key" :mascot-key="p.mascot_key" :fallback-name="p.club_name" :size="46" animated /><EntityAvatar v-else :src="p.logo_url" :name="p.club_name" :size="46" />
               <div>
                 <b>{{ p.club_name }}</b>
                 <p v-if="p.seed_no"><span class="seed-badge">S{{ p.seed_no }}</span> Hạt giống theo thành tích</p>
@@ -186,7 +187,7 @@ onMounted(load);
               <span class="placement">{{
                 r.placement === 1 ? "🥇" : r.placement === 2 ? "🥈" : "🥉"
               }}</span
-              ><EntityAvatar :src="r.logo_url" :name="r.club_name" :size="40" />
+              ><ClubMascot v-if="r.mascot_key" :mascot-key="r.mascot_key" :fallback-name="r.club_name" :size="44" animated /><EntityAvatar v-else :src="r.logo_url" :name="r.club_name" :size="44" />
               <div>
                 <b>{{ r.club_name }}</b>
                 <p>
@@ -220,6 +221,9 @@ onMounted(load);
         <TournamentBracket
           :rounds="bracket.rounds"
           :matches="bracket.matches"
+          :links="bracket.links"
+          :historical-achievements="bracket.historicalAchievements"
+          :previous-podium="bracket.previousPodium"
         />
       </section>
       <section v-else-if="active === 'matches'" class="glass card">
@@ -244,9 +248,9 @@ onMounted(load);
                 </td>
                 <td>
                   <div class="match-pair">
-                    <span>{{ m.home_club_name || "Chờ xác định" }}</span
-                    ><span>vs</span
-                    ><span>{{ m.away_club_name || "Chờ xác định" }}</span
+                    <span class="match-team"><ClubMascot v-if="m.home_mascot_key" :mascot-key="m.home_mascot_key" :fallback-name="m.home_club_name" :size="32"/><EntityAvatar v-else :src="m.home_logo" :name="m.home_club_name || 'CLB'" :size="32"/>{{ m.home_club_name || "Chờ xác định" }}</span
+                    ><span class="versus">vs</span
+                    ><span class="match-team away"><ClubMascot v-if="m.away_mascot_key" :mascot-key="m.away_mascot_key" :fallback-name="m.away_club_name" :size="32"/><EntityAvatar v-else :src="m.away_logo" :name="m.away_club_name || 'CLB'" :size="32"/>{{ m.away_club_name || "Chờ xác định" }}</span
                     ><Flame
                       v-if="m.highlighted_upset"
                       :size="15"
@@ -451,6 +455,9 @@ onMounted(load);
   align-items: center;
   gap: 8px;
 }
+.match-team { display:flex;align-items:center;gap:7px;min-width:0;font-weight:750 }
+.match-team.away { flex-direction:row-reverse;text-align:right }
+.versus { color:var(--muted);font-size:9px;font-weight:900;text-transform:uppercase }
 .prize-card {
   display: flex;
   align-items: center;

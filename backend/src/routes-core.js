@@ -39,6 +39,23 @@ const CLUB_STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED'];
 const SEASON_STATUSES = ['DRAFT', 'ACTIVE', 'FINISHED'];
 const WALLET_STATUSES = ['ACTIVE', 'LOCKED', 'CLOSED'];
 const MANUAL_TX_TYPES = ['DEPOSIT', 'WITHDRAWAL', 'PENALTY', 'BONUS', 'ADJUSTMENT', 'REFUND'];
+const CLUB_MASCOT_KEYS = [
+  'dragon-ascendant', 'golden-buffalo', 'fire-phoenix', 'thunder-wolf',
+  'royal-lion', 'ocean-shark', 'snow-leopard', 'golden-eagle',
+  'void-panther', 'jade-tiger', 'mecha-falcon', 'cosmic-stag',
+  'crimson-trex', 'neon-raptor', 'rampage-bull', 'iron-rhino',
+  'celestial-sword', 'silverbeard-sage', 'storm-champion', 'lunar-fairy',
+  'nine-tail-fox', 'jade-sentinel', 'crowned-grail', 'glacial-golem'
+];
+
+function mascotSettingKey(clubId) {
+  return `CLUB_MASCOT_${clubId}`;
+}
+
+function parseMascotSetting(value) {
+  const [mascotKey = '', locked = '0'] = String(value || '').split('|');
+  return { mascot_key: mascotKey || null, mascot_locked: locked === '1' };
+}
 
 function normalizeUserRow(row) {
   return {
@@ -328,7 +345,12 @@ router.get('/dashboard', authenticate, async (req, res) => {
 
   const clubId = req.user.clubId;
   const [club, wallet, playerStats, matches, ranking, achievements] = await Promise.all([
-    first('SELECT * FROM clubs WHERE id = ?', [clubId]),
+    first(`SELECT c.*,
+                  SUBSTRING_INDEX(ms.setting_value, '|', 1) AS mascot_key,
+                  (SUBSTRING_INDEX(ms.setting_value, '|', -1) = '1') AS mascot_locked
+           FROM clubs c
+           LEFT JOIN system_settings ms ON ms.setting_key = CONCAT('CLUB_MASCOT_', c.id)
+           WHERE c.id = ?`, [clubId]),
     first('SELECT * FROM v_club_wallets WHERE club_id = ?', [clubId]),
     first(`SELECT COUNT(*) AS total_players,
                   COALESCE(SUM(market_value),0) AS squad_market_value,
@@ -789,10 +811,13 @@ router.get('/clubs', authenticate, async (req, res) => {
   const rows = await query(
     `SELECT c.*, w.id AS wallet_id, w.balance, w.status AS wallet_status,
             u.id AS user_id, u.username, u.is_active AS account_active,
+            SUBSTRING_INDEX(ms.setting_value, '|', 1) AS mascot_key,
+            (SUBSTRING_INDEX(ms.setting_value, '|', -1) = '1') AS mascot_locked,
             (SELECT COUNT(*) FROM players p WHERE p.club_id = c.id AND p.status <> 'RETIRED') AS player_count
      FROM clubs c
      LEFT JOIN wallets w ON w.club_id = c.id AND w.wallet_type = 'CLUB'
      LEFT JOIN users u ON u.club_id = c.id AND u.account_type = 'CLUB'
+     LEFT JOIN system_settings ms ON ms.setting_key = CONCAT('CLUB_MASCOT_', c.id)
      ${whereSql}
      ORDER BY c.created_at DESC ${sqlLimit(limit, offset)}`,
     params
@@ -804,10 +829,13 @@ router.get('/clubs/:id', authenticate, async (req, res) => {
   const id = assertClubScope(req, parsePositiveInt(req.params.id));
   const club = await first(
     `SELECT c.*, w.id AS wallet_id, w.balance, w.status AS wallet_status,
-            u.id AS user_id, u.username, u.is_active AS account_active
+            u.id AS user_id, u.username, u.is_active AS account_active,
+            SUBSTRING_INDEX(ms.setting_value, '|', 1) AS mascot_key,
+            (SUBSTRING_INDEX(ms.setting_value, '|', -1) = '1') AS mascot_locked
      FROM clubs c
      LEFT JOIN wallets w ON w.club_id = c.id AND w.wallet_type = 'CLUB'
      LEFT JOIN users u ON u.club_id = c.id AND u.account_type = 'CLUB'
+     LEFT JOIN system_settings ms ON ms.setting_key = CONCAT('CLUB_MASCOT_', c.id)
      WHERE c.id = ?`, [id]
   );
   if (!club) throw new ApiError(404, 'Không tìm thấy CLB.');
@@ -907,6 +935,85 @@ router.put('/clubs/:id/account', authenticate, requireAdmin, async (req, res) =>
   }
   await audit({ userId: req.user.id, actionCode: 'UPSERT_CLUB_ACCOUNT', entityTable: 'users', entityId: userId, details: { club_id: clubId, username, is_active: isActive } });
   return ok(res, await first(`SELECT id, username, account_type, club_id, is_active, last_login_at FROM users WHERE id = ?`, [userId]));
+});
+
+router.get('/club-mascots', authenticate, async (req, res) => {
+  const rows = await query(
+    `SELECT c.id AS club_id, c.name AS club_name,
+            SUBSTRING_INDEX(ms.setting_value, '|', 1) AS mascot_key,
+            (SUBSTRING_INDEX(ms.setting_value, '|', -1) = '1') AS mascot_locked,
+            ms.updated_at
+     FROM clubs c
+     LEFT JOIN system_settings ms ON ms.setting_key = CONCAT('CLUB_MASCOT_', c.id)
+     WHERE c.registration_status = 'APPROVED'
+     ORDER BY c.name`
+  );
+  return ok(res, { mascot_keys: CLUB_MASCOT_KEYS, assignments: rows });
+});
+
+router.patch('/clubs/:id/mascot', authenticate, requireClubOrAdmin, async (req, res) => {
+  const clubId = assertClubScope(req, parsePositiveInt(req.params.id));
+  const mascotKey = parseText(req.body.mascot_key, 'mascot_key', { max: 50 });
+  if (!CLUB_MASCOT_KEYS.includes(mascotKey)) throw new ApiError(400, 'Linh vật không thuộc bộ sưu tập của hệ thống.');
+  const isAdmin = req.user.accountType === 'FIFA_ADMIN';
+  const requestedLock = isAdmin && req.body.locked !== undefined ? parseBoolean(req.body.locked) : null;
+  const allowSwap = isAdmin && parseBoolean(req.body.swap, false);
+
+  const result = await transaction(async (connection) => {
+    const lock = await first("SELECT GET_LOCK('football_rank_manager_club_mascots', 5) AS acquired", [], connection);
+    if (!Number(lock?.acquired)) throw new ApiError(409, 'Kho linh vật đang được cập nhật. Hãy thử lại.');
+    try {
+      const key = mascotSettingKey(clubId);
+      const currentRow = await first('SELECT * FROM system_settings WHERE setting_key = ? FOR UPDATE', [key], connection);
+      const current = parseMascotSetting(currentRow?.setting_value);
+      if (current.mascot_locked && !isAdmin) throw new ApiError(409, 'Linh vật đã được Admin FIFA chốt.');
+
+      const occupied = await first(
+        `SELECT setting_key, setting_value
+         FROM system_settings
+         WHERE setting_key LIKE 'CLUB_MASCOT_%'
+           AND SUBSTRING_INDEX(setting_value, '|', 1) = ?
+           AND setting_key <> ? LIMIT 1 FOR UPDATE`,
+        [mascotKey, key], connection
+      );
+      if (occupied && !allowSwap) {
+        const occupiedClubId = Number(String(occupied.setting_key).replace('CLUB_MASCOT_', ''));
+        const owner = await first('SELECT name FROM clubs WHERE id = ?', [occupiedClubId], connection);
+        throw new ApiError(409, `Linh vật đang thuộc ${owner?.name || 'một CLB khác'}. Admin FIFA có thể dùng Hoán đổi.`);
+      }
+
+      if (occupied) {
+        if (current.mascot_key) {
+          const occupiedState = parseMascotSetting(occupied.setting_value);
+          await query(
+            'UPDATE system_settings SET setting_value = ? WHERE setting_key = ?',
+            [`${current.mascot_key}|${occupiedState.mascot_locked ? 1 : 0}`, occupied.setting_key], connection
+          );
+        } else {
+          await query('DELETE FROM system_settings WHERE setting_key = ?', [occupied.setting_key], connection);
+        }
+      }
+
+      const locked = requestedLock === null ? current.mascot_locked : requestedLock;
+      await query(
+        `INSERT INTO system_settings(setting_key, setting_value, description)
+         VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), description = VALUES(description)`,
+        [key, `${mascotKey}|${locked ? 1 : 0}`, `Linh vật đại diện của CLB #${clubId}`], connection
+      );
+      await audit({
+        userId: req.user.id,
+        actionCode: locked ? 'LOCK_CLUB_MASCOT' : 'UPDATE_CLUB_MASCOT',
+        entityTable: 'clubs',
+        entityId: clubId,
+        details: { mascot_key: mascotKey, locked, swapped: Boolean(occupied) }
+      }, connection);
+      return { mascot_key: mascotKey, mascot_locked: locked, swapped: Boolean(occupied) };
+    } finally {
+      await query("SELECT RELEASE_LOCK('football_rank_manager_club_mascots')", [], connection);
+    }
+  });
+  return ok(res, result);
 });
 
 /* ========================================================================== */

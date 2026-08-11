@@ -164,3 +164,21 @@
 - 3 mức hiệu ứng kính; lưu lựa chọn lâu dài trên thiết bị.
 - Thêm chuyển trang mượt, ambient lighting, stadium beams, cursor glow và micro-interactions.
 - Tự tôn trọng thiết lập giảm chuyển động của hệ điều hành.
+# 2.0.22 — Expanded Mascot Collection & Club Competition Identity
+
+- Mở rộng kho từ 12 lên 24 linh vật 3D, gồm khủng long, dạ quang, bò, tê giác, anh hùng, thần tiên và bảo vật.
+- Thêm bộ lọc Mãnh thú, Thần thú, Anh hùng và Bảo vật trong Mascot Studio.
+- Đồng bộ linh vật theo `club_id` cho đội tham dự, vòng bảng, lịch/kết quả trận và nhánh loại trực tiếp của mọi giải CLB.
+- Giữ logo CLB làm phương án dự phòng khi CLB chưa chọn linh vật.
+- Không thay đổi cấu trúc database, không cần chạy SQL.
+
+# 2.0.21 — Club Mascot Identity & Premium Bracket
+
+- Thêm kho 12 linh vật CLB 3D riêng, tối ưu hiển thị trên desktop và điện thoại.
+- Tự đề xuất linh vật theo tên/phong cách CLB; mỗi mẫu chỉ thuộc một CLB.
+- CLB tự đổi linh vật khi chưa khóa; Admin FIFA hoán đổi, chốt hoặc mở khóa.
+- Lưu lựa chọn trong `system_settings`, không đổi cấu trúc database và không cần SQL.
+- Linh vật xuất hiện tại trang CLB công khai và nhánh đấu CLB.
+- Nâng nhánh đấu CLB lên cùng trải nghiệm với World Cup: chọn vòng, kéo ngang, đưa vòng đang chọn lên đầu và bấm CLB để soi hành trình.
+- Thêm đường tiến vào vòng trong phát sáng theo hạt giống, huy hiệu đương kim vô địch/á quân/hạng ba và hiệu ứng riêng cho rồng/trâu vàng.
+- Giữ nguyên logo gốc trong `official_logo_url`, không xóa dữ liệu nhận diện cũ.
