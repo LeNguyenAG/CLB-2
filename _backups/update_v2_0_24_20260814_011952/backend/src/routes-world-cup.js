@@ -30,7 +30,6 @@ const {
 const { finalizeCompetitionAwards } = require('./smart-awards');
 const { refreshNationalPerformanceRanks, assignNationalTournamentSeeds } = require('./automatic-seeding');
 const { synchronizeNationalProfile } = require('./national-profile-sync');
-const { settleCompetitionSponsorships } = require('./stadium-sponsorship-engine');
 
 const router = express.Router();
 
@@ -1102,7 +1101,6 @@ router.post('/competitions/:id/world-cup/finalize', authenticate, requireAdmin, 
       connection
     );
     await query("UPDATE competitions SET status = 'FINISHED', rewards_processed_at = CURRENT_TIMESTAMP(6) WHERE id = ?", [competitionId], connection);
-    await settleCompetitionSponsorships(competitionId,req.user.id,connection);
     await audit({ userId: req.user.id, actionCode: 'FINALIZE_WORLD_CUP', entityTable: 'competitions', entityId: competitionId }, connection);
   });
 

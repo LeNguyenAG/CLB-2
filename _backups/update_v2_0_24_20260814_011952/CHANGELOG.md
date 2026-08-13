@@ -182,14 +182,6 @@
 - Nâng nhánh đấu CLB lên cùng trải nghiệm với World Cup: chọn vòng, kéo ngang, đưa vòng đang chọn lên đầu và bấm CLB để soi hành trình.
 - Thêm đường tiến vào vòng trong phát sáng theo hạt giống, huy hiệu đương kim vô địch/á quân/hạng ba và hiệu ứng riêng cho rồng/trâu vàng.
 - Giữ nguyên logo gốc trong `official_logo_url`, không xóa dữ liệu nhận diện cũ.
-# v2.0.24
-
-- Thêm bộ lọc trận theo sân, giải, đội/quốc gia, mùa, quảng cáo, thương hiệu, giá trị, lịch và trạng thái.
-- Đồng bộ thẻ tổng quan sân với toàn bộ dữ liệu vận hành CLB, World Cup và giải quốc gia.
-- Tự đề xuất 1–4 gói quảng cáo theo sân + giải ngay khi phân sân; ưu tiên thương hiệu từng hợp tác.
-- CLB chỉ nhận hoặc từ chối; hợp đồng được thanh toán tự động vào ví sau khi giải kết thúc và giữ lịch sử rõ ràng.
-- Giữ API quảng cáo theo trận cũ để tương thích dữ liệu nhưng loại bỏ thao tác random khỏi giao diện CLB.
-
 # v2.0.23
 
 - Phân sân công bằng và cooldown dùng chung cho giải CLB, World Cup và giải quốc gia.

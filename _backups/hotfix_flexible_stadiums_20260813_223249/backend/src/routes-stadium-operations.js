@@ -3,7 +3,7 @@
 const express = require('express');
 const {
   query, first, ApiError, parsePositiveInt, parseEnum, parseText, parseMoney,
-  parseDecimal, parseDate, ok, audit
+  parseDecimal, ok, audit
 } = require('./db');
 const { authenticate, requireAdmin, requireClubOrAdmin, assertClubScope } = require('./auth');
 const {
@@ -26,15 +26,13 @@ router.get('/stadium-operations/dashboard', authenticate, requireClubOrAdmin, as
     scope = 'WHERE (o.owner_club_id=? OR o.home_club_id=? OR o.away_club_id=?)';
     params.push(clubId,clubId,clubId);
   }
-  const [operations, requests, totals, fanTransfers, filterOptions] = await Promise.all([
+  const [operations, requests, totals, fanTransfers] = await Promise.all([
     query(
       `SELECT o.*,s.name AS stadium_name,s.city,s.condition_pct,s.available_after,c.name AS owner_club_name,
               f.id AS finance_id,f.status AS finance_status,f.attractiveness_score,f.occupancy_pct,f.attendance_total,
               f.gross_revenue,f.operating_cost,f.damage_cost,f.owner_payout,f.condition_before,f.condition_after,
-              f.recovery_hours,f.settled_at,se.id AS season_id,se.name AS season_name,
-              (SELECT COUNT(*) FROM sponsorship_offers so WHERE so.stadium_id=o.stadium_id AND so.competition_id=o.competition_id) AS sponsor_offer_count
+              f.recovery_hours,f.settled_at
        FROM stadium_match_operations o JOIN stadiums s ON s.id=o.stadium_id
-       JOIN competitions comp ON comp.id=o.competition_id JOIN seasons se ON se.id=comp.season_id
        LEFT JOIN clubs c ON c.id=o.owner_club_id LEFT JOIN stadium_match_finances_v2 f ON f.operation_id=o.id
        ${scope} ORDER BY COALESCE(o.scheduled_at,o.assigned_at) DESC LIMIT 120`, params),
     query(
@@ -57,69 +55,9 @@ router.get('/stadium-operations/dashboard', authenticate, requireClubOrAdmin, as
        FROM player_fan_transfer_events e JOIN players p ON p.id=e.player_id
        LEFT JOIN clubs fc ON fc.id=e.from_club_id JOIN clubs tc ON tc.id=e.to_club_id
        WHERE e.from_club_id=? OR e.to_club_id=? ORDER BY e.processed_at DESC LIMIT 40`,[clubId,clubId]
-    ) : [],
-    Promise.all([
-      query(`SELECT id,name FROM stadiums WHERE status<>'INACTIVE' ORDER BY name`),
-      query(`SELECT c.id,c.name,c.season_id,s.name AS season_name FROM competitions c JOIN seasons s ON s.id=c.season_id ORDER BY s.sequence_no DESC,c.name`),
-      query(`SELECT id,name,sequence_no FROM seasons ORDER BY sequence_no DESC`),
-      query(`SELECT id,name,industry,brand_tier FROM sponsor_brands WHERE is_active=TRUE ORDER BY name`),
-      query(`SELECT DISTINCT team_name FROM(
-        SELECT home_name AS team_name FROM stadium_match_operations WHERE home_name IS NOT NULL
-        UNION SELECT away_name FROM stadium_match_operations WHERE away_name IS NOT NULL
-      ) teams ORDER BY team_name`)
-    ]).then(([stadiums,competitions,seasons,brands,teams])=>({stadiums,competitions,seasons,brands,teams}))
+    ) : []
   ]);
-  return ok(res,{operations,requests,totals,fan_transfers:fanTransfers,filter_options:filterOptions});
-});
-
-router.get('/stadium-operations/matches', authenticate, requireClubOrAdmin, async (req,res)=>{
-  const clubId=requestedClubId(req);
-  const conditions=[];const params=[];
-  if(clubId){conditions.push('(o.owner_club_id=? OR o.home_club_id=? OR o.away_club_id=?)');params.push(clubId,clubId,clubId);}
-  const addId=(key,column)=>{if(req.query[key]){conditions.push(`${column}=?`);params.push(parsePositiveInt(req.query[key],key));}};
-  addId('stadium_id','o.stadium_id');addId('competition_id','o.competition_id');addId('season_id','comp.season_id');
-  if(req.query.brand_id){conditions.push(`EXISTS(SELECT 1 FROM sponsorship_offers brand_offer WHERE brand_offer.stadium_id=o.stadium_id AND brand_offer.competition_id=o.competition_id AND brand_offer.brand_id=?)`);params.push(parsePositiveInt(req.query.brand_id,'brand_id'));}
-  if(req.query.team){conditions.push('(o.home_name=? OR o.away_name=?)');const team=parseText(req.query.team,'team',{max:180});params.push(team,team);}
-  if(req.query.match_kind){conditions.push('o.match_kind=?');params.push(parseEnum(req.query.match_kind,MATCH_KINDS,'match_kind'));}
-  if(req.query.eligibility_status){conditions.push('o.eligibility_status=?');params.push(parseEnum(req.query.eligibility_status,['ELIGIBLE','CONDITIONAL','OVERRIDDEN'],'eligibility_status'));}
-  if(req.query.assignment_method){conditions.push('o.assignment_method=?');params.push(parseEnum(req.query.assignment_method,['FIFA','CLUB_REQUEST','AUTOMATIC'],'assignment_method'));}
-  if(req.query.ad_status){conditions.push("COALESCE(sa.sponsor_status,'NONE')=?");params.push(parseEnum(req.query.ad_status,['NONE','OFFERED','ACCEPTED','REJECTED','PAID'],'ad_status'));}
-  const q=parseText(req.query.q,'q',{required:false,nullable:true,max:180});if(q){conditions.push('(o.home_name LIKE ? OR o.away_name LIKE ? OR o.competition_name LIKE ? OR st.name LIKE ?)');const like=`%${q}%`;params.push(like,like,like,like);}
-  if(req.query.date_from){conditions.push('DATE(o.scheduled_at)>=?');params.push(parseDate(req.query.date_from,'date_from'));}
-  if(req.query.date_to){conditions.push('DATE(o.scheduled_at)<=?');params.push(parseDate(req.query.date_to,'date_to'));}
-  if(req.query.min_value!==undefined&&req.query.min_value!==''){conditions.push('COALESCE(f.gross_revenue,o.fairness_score*100000000)>=?');params.push(parseMoney(req.query.min_value,'min_value'));}
-  if(req.query.max_value!==undefined&&req.query.max_value!==''){conditions.push('COALESCE(f.gross_revenue,o.fairness_score*100000000)<=?');params.push(parseMoney(req.query.max_value,'max_value'));}
-  const timing=String(req.query.timing||'ALL').toUpperCase();
-  if(timing==='FINISHED')conditions.push("ms.match_status='FINISHED'");
-  if(timing==='UPCOMING')conditions.push("ms.match_status IN('SCHEDULED','LIVE')");
-  if(timing==='UNSCHEDULED')conditions.push('o.scheduled_at IS NULL');
-  const page=Math.max(1,Number(req.query.page)||1),limit=Math.min(100,Math.max(10,Number(req.query.limit)||30)),offset=(page-1)*limit;
-  const order={NEWEST:'COALESCE(o.scheduled_at,o.assigned_at) DESC',OLDEST:'COALESCE(o.scheduled_at,o.assigned_at)',VALUE_DESC:'match_value DESC',VALUE_ASC:'match_value',STADIUM:'st.name,o.scheduled_at'}[String(req.query.sort||'NEWEST').toUpperCase()]||'COALESCE(o.scheduled_at,o.assigned_at) DESC';
-  const where=conditions.length?`WHERE ${conditions.join(' AND ')}`:'';
-  const base=`FROM stadium_match_operations o JOIN stadiums st ON st.id=o.stadium_id
-    JOIN competitions comp ON comp.id=o.competition_id JOIN seasons se ON se.id=comp.season_id
-    LEFT JOIN stadium_match_finances_v2 f ON f.operation_id=o.id
-    LEFT JOIN(
-      SELECT stadium_id,competition_id,MAX(brand_id) AS brand_id,
-        CASE WHEN SUM(status='PAID')>0 THEN 'PAID' WHEN SUM(status='ACCEPTED')>0 THEN 'ACCEPTED'
-             WHEN SUM(status='OFFERED')>0 THEN 'OFFERED' WHEN SUM(status='REJECTED')>0 THEN 'REJECTED' ELSE 'NONE' END AS sponsor_status,
-        COUNT(*) AS sponsor_count,GROUP_CONCAT(DISTINCT sb.name ORDER BY sb.name SEPARATOR ', ') AS sponsor_names,
-        SUM(CASE WHEN so.status IN('ACCEPTED','PAID') THEN so.amount ELSE 0 END) AS sponsor_value
-      FROM sponsorship_offers so JOIN sponsor_brands sb ON sb.id=so.brand_id GROUP BY stadium_id,competition_id
-    ) sa ON sa.stadium_id=o.stadium_id AND sa.competition_id=o.competition_id
-    LEFT JOIN(
-      SELECT 'REGULAR' match_kind,id source_match_id,status match_status FROM matches
-      UNION ALL SELECT 'WORLD_CUP',id,status FROM world_cup_matches
-      UNION ALL SELECT 'NATIONAL_CUP',id,status FROM national_cup_matches
-    ) ms ON ms.match_kind=o.match_kind AND ms.source_match_id=o.source_match_id ${where}`;
-  const count=await first(`SELECT COUNT(*) AS total ${base}`,params);
-  const rows=await query(`SELECT o.*,st.name AS stadium_name,st.city,st.condition_pct,se.id AS season_id,se.name AS season_name,
-      ms.match_status,f.occupancy_pct,f.attendance_total,f.gross_revenue,f.owner_payout,f.damage_cost,f.settled_at,
-      COALESCE(f.gross_revenue,o.fairness_score*100000000) AS match_value,
-      (f.id IS NULL) AS value_is_estimated,COALESCE(sa.sponsor_status,'NONE') AS sponsor_status,
-      COALESCE(sa.sponsor_count,0) AS sponsor_count,sa.sponsor_names,COALESCE(sa.sponsor_value,0) AS sponsor_value
-    ${base} ORDER BY ${order} LIMIT ${limit} OFFSET ${offset}`,params);
-  return ok(res,{rows,page,limit,total:Number(count?.total||0),pages:Math.max(1,Math.ceil(Number(count?.total||0)/limit))});
+  return ok(res,{operations,requests,totals,fan_transfers:fanTransfers});
 });
 
 router.get('/stadium-operations/:operationId/statement', authenticate, requireClubOrAdmin, async (req,res)=>{

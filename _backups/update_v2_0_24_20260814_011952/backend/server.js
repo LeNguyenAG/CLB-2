@@ -73,7 +73,7 @@ app.get('/api', (_req, res) => {
     success: true,
     data: {
       name: 'Football Rank Manager API',
-      version: '2.0.24',
+      version: '2.0.23',
       health: '/api/health',
       frontendExpected: process.env.FRONTEND_URL || 'http://localhost:5173'
     }

@@ -390,16 +390,15 @@ router.get('/stadium-centre/summary', authenticate, requireClubOrAdmin, async (r
     ),
     query(
       `SELECT so.*,sb.name AS brand_name,sb.industry,sb.brand_tier,sb.conflict_group,sb.accent_hex,
-              s.name AS stadium_name,comp.name AS competition_name,se.id AS season_id,se.name AS season_name,
+              s.name AS stadium_name,comp.name AS competition_name,
               hc.name AS home_club_name,ac.name AS away_club_name
        FROM sponsorship_offers so
        JOIN sponsor_brands sb ON sb.id=so.brand_id
        LEFT JOIN stadiums s ON s.id=so.stadium_id
        LEFT JOIN competitions comp ON comp.id=so.competition_id
-       LEFT JOIN seasons se ON se.id=comp.season_id
        LEFT JOIN matches m ON m.id=so.match_id
        LEFT JOIN clubs hc ON hc.id=m.home_club_id LEFT JOIN clubs ac ON ac.id=m.away_club_id
-       WHERE so.club_id=? ORDER BY FIELD(so.status,'OFFERED','ACCEPTED','PAID','REJECTED','EXPIRED'),so.created_at DESC LIMIT 200`,
+       WHERE so.club_id=? ORDER BY FIELD(so.status,'OFFERED','ACCEPTED','PAID','REJECTED','EXPIRED'),so.created_at DESC LIMIT 80`,
       [clubId]
     ),
     query(
@@ -770,8 +769,8 @@ router.post('/sponsorship/offers/random', authenticate, requireClubOrAdmin, asyn
       ]);
       const probability=clamp(12+attraction*0.72+Number(stadium.commercial_quality)*0.18+(brand.brand_tier==='GLOBAL'?-8:8),1,98);
       await query(
-        `INSERT INTO sponsorship_offers(club_id,stadium_id,competition_id,match_id,generation_source,brand_id,offer_type,amount,status,attractiveness_score,appearance_probability,factors,expires_at,created_by_user_id)
-         VALUES(?,?,?,?,'MATCH_RANDOM_LEGACY',?,?,?,'OFFERED',?,?,?,DATE_ADD(NOW(),INTERVAL 7 DAY),?)`,
+        `INSERT INTO sponsorship_offers(club_id,stadium_id,competition_id,match_id,brand_id,offer_type,amount,status,attractiveness_score,appearance_probability,factors,expires_at,created_by_user_id)
+         VALUES(?,?,?,?,?,?,?,'OFFERED',?,?,?,DATE_ADD(NOW(),INTERVAL 7 DAY),?)`,
         [clubId,stadiumId,match.competition_id,matchId,brand.id,offerType,amount,attraction,probability,JSON.stringify({seed,stadiumRating:stadium.rating_score,competitionCoefficient:match.coefficient,brandTier:brand.brand_tier}),req.user.id],
         connection
       );
@@ -824,11 +823,11 @@ router.patch('/sponsorship/offers/:id/status', authenticate, requireClubOrAdmin,
       if(conflict)throw new ApiError(409,`Xung đột ngành hàng với ${conflict.name}. Chỉ được chọn một nhãn hàng trong cùng nhóm cho phạm vi này.`);
       await query(`UPDATE sponsorship_offers SET status='ACCEPTED',accepted_at=NOW(6) WHERE id=?`,[offerId],connection);
       await query(
-        `INSERT INTO sponsorship_contracts(offer_id,club_id,brand_id,match_id,competition_id,stadium_id,amount,status,ends_at)
-         VALUES(?,?,?,?,?,?,?,'ACTIVE',COALESCE(?,DATE_ADD(NOW(),INTERVAL 90 DAY)))`,
-        [offerId,offer.club_id,offer.brand_id,offer.match_id,offer.competition_id,offer.stadium_id,offer.amount,offer.expires_at],connection
+        `INSERT INTO sponsorship_contracts(offer_id,club_id,brand_id,match_id,stadium_id,amount,status,ends_at)
+         VALUES(?,?,?,?,?,?,'ACTIVE',COALESCE(?,DATE_ADD(NOW(),INTERVAL 90 DAY)))`,
+        [offerId,offer.club_id,offer.brand_id,offer.match_id,offer.stadium_id,offer.amount,offer.expires_at],connection
       );
-      if(!offer.match_id&&!offer.competition_id){
+      if(!offer.match_id){
         const wallet=await getClubWallet(offer.club_id,connection);
         await callProcedure('sp_post_wallet_entry_core',[wallet.id,'CREDIT','SPONSORSHIP',String(offer.amount),null,null,'sponsorship_offers',offerId,`Tài trợ ${offer.brand_name}`,req.user.id,null],connection);
         const tx=await first(`SELECT id FROM wallet_transactions WHERE reference_table='sponsorship_offers' AND reference_id=? ORDER BY id DESC LIMIT 1`,[offerId],connection);

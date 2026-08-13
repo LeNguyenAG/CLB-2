@@ -10,10 +10,9 @@ const sql = [
   fs.readFileSync(path.join(root, 'database', 'UPDATE_V2_0_16_AUTOMATIC_PLAYER_VALUATION.sql'), 'utf8'),
   fs.readFileSync(path.join(root, 'database', 'UPDATE_V2_0_18_NATIONAL_32_ADMIN_EXPERIENCE.sql'), 'utf8'),
   fs.readFileSync(path.join(root, 'database', 'UPDATE_V2_0_19_NATIONAL_32_DATABASE_QUOTAS.sql'), 'utf8'),
-  fs.readFileSync(path.join(root, 'database', 'UPDATE_V2_0_23_STADIUM_MATCH_OPERATIONS.sql'), 'utf8'),
-  fs.readFileSync(path.join(root, 'database', 'UPDATE_V2_0_24_STADIUM_SEARCH_AUTO_SPONSOR.sql'), 'utf8')
+  fs.readFileSync(path.join(root, 'database', 'UPDATE_V2_0_23_STADIUM_MATCH_OPERATIONS.sql'), 'utf8')
 ].join('\n');
-const source = ['routes-core.js', 'routes-football.js', 'routes-competitions.js', 'routes-world-cup.js', 'routes-national-tournaments.js', 'routes-stadiums.js', 'routes-stadium-compliance.js', 'routes-stadium-operations.js', 'stadium-match-engine.js', 'stadium-sponsorship-engine.js', 'routes-performance.js', 'routes-influence.js', 'routes-player-valuations.js']
+const source = ['routes-core.js', 'routes-football.js', 'routes-competitions.js', 'routes-world-cup.js', 'routes-national-tournaments.js', 'routes-stadiums.js', 'routes-stadium-compliance.js', 'routes-stadium-operations.js', 'stadium-match-engine.js', 'routes-performance.js', 'routes-influence.js', 'routes-player-valuations.js']
   .map((file) => fs.readFileSync(path.join(root, 'src', file), 'utf8'))
   .join('\n');
 
@@ -48,18 +47,6 @@ const requiredObjects = [
   'stadium_match_requests', 'stadium_match_operations', 'stadium_match_finances_v2',
   'stadium_finance_statement_lines', 'player_fan_profiles', 'player_fan_transfer_events'
 ];
-
-const requiredStadiumSponsorFeatures = [
-  ['offer generation source', /frm_v224_add_column\('sponsorship_offers','generation_source'/i],
-  ['offer preference score', /frm_v224_add_column\('sponsorship_offers','preference_score'/i],
-  ['contract competition scope', /frm_v224_add_column\('sponsorship_contracts','competition_id'/i],
-  ['filtered match API', /stadium-operations\/matches/i],
-  ['automatic offer generation', /generateStadiumCompetitionOffers/i],
-  ['competition settlement', /settleCompetitionSponsorships/i]
-];
-const missingStadiumSponsorFeatures = requiredStadiumSponsorFeatures
-  .filter(([, expression]) => !expression.test(sql + '\n' + source))
-  .map(([name]) => name);
 const missingObjects = requiredObjects.filter((name) => {
   const expression = new RegExp(`CREATE (?:(?:OR REPLACE )?VIEW|TABLE(?: IF NOT EXISTS)?)\\s+${name}\\b`, 'i');
   return !expression.test(sql);
@@ -98,13 +85,12 @@ const missingNationalQuotaFeatures = requiredNationalQuotaFeatures
   .filter(([, expression]) => !expression.test(sql + '\n' + source))
   .map(([name]) => name);
 
-if (missingProcedures.length || missingObjects.length || missingValuationFeatures.length || missingNationalQuotaFeatures.length || missingStadiumSponsorFeatures.length) {
+if (missingProcedures.length || missingObjects.length || missingValuationFeatures.length || missingNationalQuotaFeatures.length) {
   console.error('SCHEMA_SYNC_FAILED');
   if (missingProcedures.length) console.error('Thủ tục thiếu:', missingProcedures.join(', '));
   if (missingObjects.length) console.error('Bảng/view thiếu:', missingObjects.join(', '));
   if (missingValuationFeatures.length) console.error('Thành phần định giá thiếu:', missingValuationFeatures.join(', '));
   if (missingNationalQuotaFeatures.length) console.error('Thành phần hạn ngạch thiếu:', missingNationalQuotaFeatures.join(', '));
-  if (missingStadiumSponsorFeatures.length) console.error('Thành phần sân/tài trợ thiếu:', missingStadiumSponsorFeatures.join(', '));
   process.exit(1);
 }
 
@@ -113,4 +99,3 @@ console.log(`Procedures used by API: ${calledProcedures.size}`);
 console.log(`Required tables/views checked: ${requiredObjects.length}`);
 console.log(`Valuation schema/API features checked: ${requiredValuationFeatures.length}`);
 console.log(`National quota schema/API features checked: ${requiredNationalQuotaFeatures.length}`);
-console.log(`Stadium sponsorship schema/API features checked: ${requiredStadiumSponsorFeatures.length}`);

@@ -3,7 +3,6 @@
 const {
   query, first, transaction, callProcedure, ApiError, audit
 } = require('./db');
-const { generateStadiumCompetitionOffers } = require('./stadium-sponsorship-engine');
 
 const MATCH_KINDS = ['REGULAR', 'WORLD_CUP', 'NATIONAL_CUP'];
 
@@ -100,27 +99,24 @@ function evaluateCandidate(stadium, profile) {
     failures.push(item); (isHard ? hard : soft).push(item);
   };
   if (stadium.status !== 'ACTIVE') add('status', 'ACTIVE', stadium.status, true);
-  // Chỉ các ngưỡng vận hành tuyệt đối mới loại sân. Chuẩn theo vòng đấu dùng
-  // để xếp ưu tiên và đánh dấu CONDITIONAL, không làm trận đấu bị treo.
-  if (number(stadium.condition_pct, 100) < 25) add('condition_pct', 25, number(stadium.condition_pct), true);
-  const safetyFloors = { pitch_quality:15, lighting_quality:15, security_quality:20 };
-  for (const [field, floor] of Object.entries(safetyFloors)) {
-    if (number(stadium[field]) < floor) add(field, floor, number(stadium[field]), true);
-  }
+  if (number(stadium.condition_pct, 100) < 45) add('condition_pct', 45, number(stadium.condition_pct), true);
   const capacityRequired = number(profile.min_capacity);
-  if (number(stadium.capacity_total) < capacityRequired) add('capacity_total', capacityRequired, number(stadium.capacity_total), false);
+  const capacityShortfall = capacityRequired ? (capacityRequired - number(stadium.capacity_total)) / capacityRequired * 100 : 0;
+  if (capacityShortfall > 0) add('capacity_total', capacityRequired, number(stadium.capacity_total), capacityShortfall > number(profile.capacity_tolerance_pct));
   const quality = [
     ['rating_score','min_rating_score',false],['level_no','min_level_no',false],['vip_seats','min_vip_seats',false],
     ['pitch_quality','min_pitch_quality',true],['lighting_quality','min_lighting_quality',true],
     ['technology_quality','min_technology_quality',false],['security_quality','min_security_quality',true],
     ['hospitality_quality','min_hospitality_quality',false],['parking_quality','min_parking_quality',false]
   ];
-  for (const [field, requiredField] of quality) {
+  for (const [field, requiredField, safety] of quality) {
     const required = number(profile[requiredField]);
     const actual = number(stadium[field]);
     if (actual >= required) continue;
-    add(field, required, actual, false);
+    const tolerance = field === 'vip_seats' ? Math.max(30, required * 0.12) : number(profile.soft_quality_tolerance, 8);
+    add(field, required, actual, safety && required - actual > tolerance);
   }
+  const strictTechnology = ['WORLD_FINAL','WORLD_CUP_ELITE','ELITE_KNOCKOUT'].includes(profile.code);
   const features = {
     require_var:'has_var', require_goal_line_technology:'has_goal_line_technology',
     require_led_perimeter:'has_led_perimeter', require_backup_power:'has_backup_power',
@@ -128,7 +124,9 @@ function evaluateCandidate(stadium, profile) {
   };
   for (const [requiredField, stadiumField] of Object.entries(features)) {
     if (number(profile[requiredField]) > 0 && number(stadium[stadiumField]) <= 0) {
-      add(stadiumField, true, false, false);
+      // Vòng bảng/vòng đầu được phép tổ chức có điều kiện để các sân dữ liệu cũ
+      // vẫn được sử dụng. Từ Elite trở lên, năng lực kỹ thuật bắt buộc là lỗi cứng.
+      add(stadiumField, true, false, strictTechnology);
     }
   }
   return {
@@ -174,7 +172,7 @@ async function chooseAutomaticVenue(match, connection = undefined) {
        SELECT stadium_id,COUNT(*) AS recent_uses FROM stadium_match_operations
        WHERE assigned_at>=DATE_SUB(NOW(),INTERVAL 30 DAY) GROUP BY stadium_id
      ) u ON u.stadium_id=sr.id
-     WHERE sr.status='ACTIVE' AND COALESCE(s.condition_pct,100)>=25
+     WHERE sr.status='ACTIVE' AND COALESCE(s.condition_pct,100)>=45
        AND (s.available_after IS NULL OR s.available_after<=?)
        AND NOT EXISTS (
          SELECT 1 FROM stadium_match_operations busy
@@ -188,32 +186,33 @@ async function chooseAutomaticVenue(match, connection = undefined) {
      ORDER BY COALESCE(u.recent_uses,0),sr.rating_score DESC,sr.capacity_total DESC`,
     [scheduledAt,match.scheduled_at,match.scheduled_at,match.match_kind,match.id], connection
   );
-  const evaluated = candidates.map((stadium) => ({ stadium, evaluation: evaluateCandidate(stadium, profile) }))
+  let evaluated = candidates.map((stadium) => ({ stadium, evaluation: evaluateCandidate(stadium, profile) }))
     .filter((item) => item.evaluation.eligibility_status !== 'NOT_ELIGIBLE');
-  if (!evaluated.length) throw new ApiError(400, 'Không có sân an toàn đang sẵn sàng: sân có thể đang bảo trì, nâng cấp, trùng lịch hoặc tình trạng dưới 25%.');
+  if (!evaluated.length) {
+    // Không để cả giải bị treo chỉ vì dữ liệu sân cũ chưa có đủ các cờ công nghệ.
+    // Chỉ hạ xuống CONDITIONAL khi các ngưỡng vận hành/an toàn nền tảng vẫn đạt.
+    evaluated = candidates
+      .filter(({ pitch_quality, lighting_quality, security_quality }) =>
+        number(pitch_quality) >= 30 && number(lighting_quality) >= 25 && number(security_quality) >= 32)
+      .map((stadium) => {
+        const evaluation = evaluateCandidate(stadium, profile);
+        evaluation.eligibility_status = 'CONDITIONAL';
+        evaluation.compliance_score = Math.max(35, evaluation.compliance_score);
+        evaluation.fallback_reason = 'BEST_OPERATIONAL_VENUE';
+        return { stadium, evaluation };
+      });
+  }
+  if (!evaluated.length) throw new ApiError(400, 'Chưa có sân nào vừa đạt chuẩn vừa sẵn sàng sau thời gian bảo trì. FIFA có thể chỉ định sân ngoại lệ.');
   const random = seededRandom(hashSeed(`${match.match_kind}:${match.id}:${match.competition_id}`));
-  const eliteMatch = ['WORLD_FINAL','WORLD_CUP_ELITE','ELITE_KNOCKOUT'].includes(profile.code);
   for (const item of evaluated) {
-    const capacityScore = clamp(Math.log10(Math.max(1000,number(item.stadium.capacity_total))) / 5 * 100, 0, 100);
-    item.fairness_score = item.evaluation.compliance_score * (eliteMatch ? 0.30 : 0.26)
-      + number(item.stadium.condition_pct, 100) * 0.20
-      + number(item.stadium.rating_score) * (eliteMatch ? 0.25 : 0.17)
-      + capacityScore * (eliteMatch ? 0.15 : 0.09)
-      + (1 / (1 + number(item.stadium.recent_uses))) * (eliteMatch ? 7 : 18)
-      + random() * (eliteMatch ? 3 : 7);
+    item.fairness_score = item.evaluation.compliance_score * 0.42
+      + number(item.stadium.condition_pct, 100) * 0.23
+      + number(item.stadium.rating_score) * 0.12
+      + (1 / (1 + number(item.stadium.recent_uses))) * 18
+      + random() * 5;
   }
   evaluated.sort((a, b) => b.fairness_score - a.fairness_score);
-  // Random có trọng số: sân tốt có xác suất cao hơn, nhưng sân nhỏ vẫn có cơ
-  // hội và số lần dùng gần đây tiếp tục kéo điểm xuống để chia đều dài hạn.
-  const floor = evaluated[evaluated.length-1].fairness_score;
-  const weights = evaluated.map((item) => Math.pow(Math.max(1,item.fairness_score-floor+6),eliteMatch?1.8:1.35));
-  let roll = random() * weights.reduce((sum,value) => sum+value,0);
-  let selected = evaluated[0];
-  for (let index=0;index<evaluated.length;index+=1) {
-    roll -= weights[index];
-    if (roll<=0) { selected=evaluated[index]; break; }
-  }
-  return { ...selected, profile };
+  return { ...evaluated[0], profile };
 }
 
 async function persistOperation({ match, stadium, evaluation, profile, method, requestId = null, userId = null, fairnessScore = 0 }, connection) {
@@ -233,27 +232,21 @@ async function persistOperation({ match, stadium, evaluation, profile, method, r
     [match.match_kind,match.id,match.competition_id,match.competition_name,match.stage_type,match.round_label,
       match.home_name,match.away_name,match.home_club_id,match.away_club_id,stadium.id,owner?.club_id||null,requestId,
       method,profile.code,evaluation.eligibility_status,evaluation.compliance_score,fairnessScore,match.scheduled_at,
-      JSON.stringify({ formula_version:'2.0.23.1', profile:profile.code, failures:evaluation.failures,
-        policy:'SAFETY_BLOCKS; STANDARDS_PRIORITIZE; WEIGHTED_FAIR_RANDOM' }),userId], connection
+      JSON.stringify({ formula_version:'2.0.23', profile:profile.code, failures:evaluation.failures }),userId], connection
   );
-  const operation = await first(
+  return first(
     `SELECT o.*,s.name AS stadium_name,s.city,s.condition_pct,s.available_after,c.name AS owner_club_name
      FROM stadium_match_operations o JOIN stadiums s ON s.id=o.stadium_id
      LEFT JOIN clubs c ON c.id=o.owner_club_id WHERE o.match_kind=? AND o.source_match_id=?`,
     [match.match_kind, match.id], connection
   );
-  await generateStadiumCompetitionOffers(operation.id,userId,connection);
-  return operation;
 }
 
 async function autoAssignMatch(kind, matchId, userId = null, { force = false } = {}) {
   return transaction(async (connection) => {
     const match = await loadMatchContext(kind, matchId, connection);
     const existing = await first(`SELECT * FROM stadium_match_operations WHERE match_kind=? AND source_match_id=? FOR UPDATE`, [match.match_kind, match.id], connection);
-    if (existing && !force) {
-      await generateStadiumCompetitionOffers(existing.id,userId,connection);
-      return existing;
-    }
+    if (existing && !force) return existing;
     if (existing && ['FIFA','CLUB_REQUEST'].includes(existing.assignment_method) && force !== true) return existing;
     const selected = await chooseAutomaticVenue(match, connection);
     const operation = await persistOperation({ match, ...selected, method:'AUTOMATIC', userId, fairnessScore:selected.fairness_score }, connection);

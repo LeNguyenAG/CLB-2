@@ -3,7 +3,6 @@
 const {
   query, first, transaction, callProcedure, ApiError, audit
 } = require('./db');
-const { generateStadiumCompetitionOffers } = require('./stadium-sponsorship-engine');
 
 const MATCH_KINDS = ['REGULAR', 'WORLD_CUP', 'NATIONAL_CUP'];
 
@@ -236,24 +235,19 @@ async function persistOperation({ match, stadium, evaluation, profile, method, r
       JSON.stringify({ formula_version:'2.0.23.1', profile:profile.code, failures:evaluation.failures,
         policy:'SAFETY_BLOCKS; STANDARDS_PRIORITIZE; WEIGHTED_FAIR_RANDOM' }),userId], connection
   );
-  const operation = await first(
+  return first(
     `SELECT o.*,s.name AS stadium_name,s.city,s.condition_pct,s.available_after,c.name AS owner_club_name
      FROM stadium_match_operations o JOIN stadiums s ON s.id=o.stadium_id
      LEFT JOIN clubs c ON c.id=o.owner_club_id WHERE o.match_kind=? AND o.source_match_id=?`,
     [match.match_kind, match.id], connection
   );
-  await generateStadiumCompetitionOffers(operation.id,userId,connection);
-  return operation;
 }
 
 async function autoAssignMatch(kind, matchId, userId = null, { force = false } = {}) {
   return transaction(async (connection) => {
     const match = await loadMatchContext(kind, matchId, connection);
     const existing = await first(`SELECT * FROM stadium_match_operations WHERE match_kind=? AND source_match_id=? FOR UPDATE`, [match.match_kind, match.id], connection);
-    if (existing && !force) {
-      await generateStadiumCompetitionOffers(existing.id,userId,connection);
-      return existing;
-    }
+    if (existing && !force) return existing;
     if (existing && ['FIFA','CLUB_REQUEST'].includes(existing.assignment_method) && force !== true) return existing;
     const selected = await chooseAutomaticVenue(match, connection);
     const operation = await persistOperation({ match, ...selected, method:'AUTOMATIC', userId, fairnessScore:selected.fairness_score }, connection);

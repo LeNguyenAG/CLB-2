@@ -34,7 +34,6 @@ const { finalizeCompetitionAwards } = require('./smart-awards');
 const { finalizeAllCompetitionMatchRatings, finalizeCompetitionPerformance } = require('./performance-engine');
 const { recalculateClubInfluence } = require('./routes-influence');
 const { recalculateClubSeeds } = require('./automatic-seeding');
-const { settleCompetitionSponsorships } = require('./stadium-sponsorship-engine');
 
 const router = express.Router();
 
@@ -1046,7 +1045,6 @@ router.get('/competitions/:id/upset-rewards', async (req, res) => {
 router.post('/competitions/:id/finalize', authenticate, requireAdmin, async (req, res) => {
   const competitionId = parsePositiveInt(req.params.id);
   const resultSets = await callProcedure('sp_finalize_competition', [competitionId, req.user.id]);
-  const stadiumSponsorships = await settleCompetitionSponsorships(competitionId,req.user.id);
   let medalResult = null;
   let medalWarning = null;
   try {
@@ -1135,8 +1133,7 @@ router.post('/competitions/:id/finalize', authenticate, requireAdmin, async (req
     individualAwards,
     individualAwardWarning,
     influenceUpdate,
-    influenceWarning,
-    stadiumSponsorships
+    influenceWarning
   });
 });
 

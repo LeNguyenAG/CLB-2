@@ -10,7 +10,6 @@ const {
 } = require('./db');
 const { authenticate, requireAdmin } = require('./auth');
 const { allocateConfederationQuotas, drawNationalKnockout } = require('./national-tournament-algorithms');
-const { settleCompetitionSponsorships } = require('./stadium-sponsorship-engine');
 
 const router = express.Router();
 const DRAW_MODES = ['SEEDED_CONSTRAINED', 'FULL_RANDOM'];
@@ -755,7 +754,6 @@ router.post('/competitions/:id/national-tournament/finalize', authenticate, requ
     }
     await query('UPDATE national_cup_profiles SET tournament_finalized_at=CURRENT_TIMESTAMP(6) WHERE competition_id=?', [competitionId], connection);
     await query("UPDATE competitions SET status='FINISHED',rewards_processed_at=CURRENT_TIMESTAMP(6) WHERE id=?", [competitionId], connection);
-    await settleCompetitionSponsorships(competitionId,req.user.id,connection);
     await audit({
       userId: req.user.id, actionCode: 'FINALIZE_NATIONAL_SPECIAL_32', entityTable: 'competitions', entityId: competitionId,
       details: { resultCount: enriched.length, automaticAwards: winners.map((item) => item[0]), totalPrize: totalPrize.toString() }
