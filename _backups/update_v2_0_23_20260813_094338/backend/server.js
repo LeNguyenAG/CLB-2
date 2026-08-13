@@ -15,7 +15,6 @@ const worldCupRoutes = require('./src/routes-world-cup');
 const nationalTournamentRoutes = require('./src/routes-national-tournaments');
 const stadiumRoutes = require('./src/routes-stadiums');
 const stadiumComplianceRoutes = require('./src/routes-stadium-compliance').router;
-const stadiumOperationsRoutes = require('./src/routes-stadium-operations');
 const performanceRoutes = require('./src/routes-performance');
 const influenceRoutes = require('./src/routes-influence').router;
 const playerValuationRoutes = require('./src/routes-player-valuations');
@@ -35,7 +34,7 @@ const configuredOrigins = String(process.env.CORS_ORIGINS || '')
 
 function isAllowedOrigin(origin) {
   if (!origin) return true;
-  if (configuredOrigins.includes(origin)) return true;
+  if (configuredOrigins.includes('*') || configuredOrigins.includes(origin)) return true; // <-- Thêm điều kiện nhận dấu *
   if (!isProduction && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) return true;
   return false;
 }
@@ -73,7 +72,7 @@ app.get('/api', (_req, res) => {
     success: true,
     data: {
       name: 'Football Rank Manager API',
-      version: '2.0.23',
+      version: '2.0.16',
       health: '/api/health',
       frontendExpected: process.env.FRONTEND_URL || 'http://localhost:5173'
     }
@@ -117,9 +116,6 @@ app.get('/api/diagnostics/integration', async (_req, res) => {
   await run('rankingScope', "SELECT ranking_scope FROM player_ranking_points WHERE ranking_scope IN ('CLUB','NATIONAL_TEAM') LIMIT 1");
   await run('stadiumEconomy', 'SELECT id FROM stadiums LIMIT 1');
   await run('stadiumCompliance', 'SELECT id FROM stadium_standard_profiles LIMIT 1');
-  await run('stadiumMatchOperations', 'SELECT id FROM stadium_match_operations LIMIT 1');
-  await run('stadiumOwnerStatements', 'SELECT id FROM stadium_match_finances_v2 LIMIT 1');
-  await run('playerFanMobility', 'SELECT player_id FROM player_fan_profiles LIMIT 1');
   await run('performanceRatings', 'SELECT id FROM match_player_ratings LIMIT 1');
   await run('clubInfluence', 'SELECT club_id FROM club_influence_profiles LIMIT 1');
   await run('automaticPlayerValuation', 'SELECT id FROM player_valuation_batches LIMIT 1');
@@ -135,7 +131,6 @@ app.use('/api', worldCupRoutes);
 app.use('/api', nationalTournamentRoutes);
 app.use('/api', stadiumRoutes);
 app.use('/api', stadiumComplianceRoutes);
-app.use('/api', stadiumOperationsRoutes);
 app.use('/api', performanceRoutes);
 app.use('/api', influenceRoutes);
 app.use('/api', playerValuationRoutes);

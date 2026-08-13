@@ -2,7 +2,6 @@
 
 const crypto = require('crypto');
 const express = require('express');
-const { settleFinishedMatch } = require('./stadium-match-engine');
 const {
   query,
   first,
@@ -887,14 +886,9 @@ router.post('/matches/:id/result', authenticate, requireAdmin, async (req, res) 
   const awayPenalty = req.body.away_penalty_score === null || req.body.away_penalty_score === undefined ? null : parsePositiveInt(req.body.away_penalty_score, 'away_penalty_score', { min: 0, max: 999 });
   const note = parseText(req.body.note, 'note', { required: false, nullable: true, max: 500 });
   await callProcedure('sp_set_match_result', [id, homeScore, awayScore, homePenalty, awayPenalty, req.user.id, note]);
-  let stadiumSettlement = null;
-  let stadiumWarning = null;
-  try { stadiumSettlement = await settleFinishedMatch('REGULAR', id, req.user.id); }
-  catch (error) { stadiumWarning = error.message; }
-  const matchResult = await first(`SELECT m.*, hc.name AS home_club_name, ac.name AS away_club_name, wc.name AS winner_club_name
+  return ok(res, await first(`SELECT m.*, hc.name AS home_club_name, ac.name AS away_club_name, wc.name AS winner_club_name
     FROM matches m LEFT JOIN clubs hc ON hc.id = m.home_club_id LEFT JOIN clubs ac ON ac.id = m.away_club_id
-    LEFT JOIN clubs wc ON wc.id = m.winner_club_id WHERE m.id = ?`, [id]);
-  return ok(res, { ...matchResult, stadium_settlement: stadiumSettlement, stadium_warning: stadiumWarning });
+    LEFT JOIN clubs wc ON wc.id = m.winner_club_id WHERE m.id = ?`, [id]));
 });
 
 router.post('/matches/:id/reset', authenticate, requireAdmin, async (req, res) => {

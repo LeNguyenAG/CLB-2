@@ -9,10 +9,9 @@ const sql = [
   fs.readFileSync(path.join(root, 'database', 'UPDATE_V2_0_15_NATIONAL_TOURNAMENTS.sql'), 'utf8'),
   fs.readFileSync(path.join(root, 'database', 'UPDATE_V2_0_16_AUTOMATIC_PLAYER_VALUATION.sql'), 'utf8'),
   fs.readFileSync(path.join(root, 'database', 'UPDATE_V2_0_18_NATIONAL_32_ADMIN_EXPERIENCE.sql'), 'utf8'),
-  fs.readFileSync(path.join(root, 'database', 'UPDATE_V2_0_19_NATIONAL_32_DATABASE_QUOTAS.sql'), 'utf8'),
-  fs.readFileSync(path.join(root, 'database', 'UPDATE_V2_0_23_STADIUM_MATCH_OPERATIONS.sql'), 'utf8')
+  fs.readFileSync(path.join(root, 'database', 'UPDATE_V2_0_19_NATIONAL_32_DATABASE_QUOTAS.sql'), 'utf8')
 ].join('\n');
-const source = ['routes-core.js', 'routes-football.js', 'routes-competitions.js', 'routes-world-cup.js', 'routes-national-tournaments.js', 'routes-stadiums.js', 'routes-stadium-compliance.js', 'routes-stadium-operations.js', 'stadium-match-engine.js', 'routes-performance.js', 'routes-influence.js', 'routes-player-valuations.js']
+const source = ['routes-core.js', 'routes-football.js', 'routes-competitions.js', 'routes-world-cup.js', 'routes-national-tournaments.js', 'routes-stadiums.js', 'routes-stadium-compliance.js', 'routes-performance.js', 'routes-influence.js', 'routes-player-valuations.js']
   .map((file) => fs.readFileSync(path.join(root, 'src', file), 'utf8'))
   .join('\n');
 
@@ -43,9 +42,7 @@ const requiredObjects = [
   'national_competition_reward_rules', 'national_cup_profiles',
   'national_cup_confederation_quotas', 'national_cup_entries', 'national_cup_rounds',
   'national_cup_matches', 'national_cup_match_links', 'national_cup_results',
-  'player_valuation_batches', 'player_valuation_results',
-  'stadium_match_requests', 'stadium_match_operations', 'stadium_match_finances_v2',
-  'stadium_finance_statement_lines', 'player_fan_profiles', 'player_fan_transfer_events'
+  'player_valuation_batches', 'player_valuation_results'
 ];
 const missingObjects = requiredObjects.filter((name) => {
   const expression = new RegExp(`CREATE (?:(?:OR REPLACE )?VIEW|TABLE(?: IF NOT EXISTS)?)\\s+${name}\\b`, 'i');

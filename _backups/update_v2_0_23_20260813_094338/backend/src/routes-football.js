@@ -1,7 +1,6 @@
 'use strict';
 
 const express = require('express');
-const { reconcileTransferFans } = require('./stadium-match-engine');
 const {
   query,
   first,
@@ -1066,7 +1065,6 @@ router.post('/transfer-offers/:id/complete', authenticate, requireAdmin, async (
   if (offer.transfer_type === 'PAID') assertMarketFloor(offer.transfer_fee, offer, 'Phí chuyển nhượng');
 
   const resultSets = await callProcedure('sp_complete_transfer', [id, req.user.id]);
-  const fanMovement = await reconcileTransferFans(id, req.user.id);
 
   await query(
     `UPDATE competition_rosters cr
@@ -1086,8 +1084,7 @@ router.post('/transfer-offers/:id/complete', authenticate, requireAdmin, async (
 
   return ok(res, {
     message: 'Đã hoàn tất chuyển nhượng, cập nhật ví, hợp đồng, lịch sử CLB và đồng bộ đội hình các giải đang mở.',
-    resultSets,
-    fan_movement: fanMovement
+    resultSets
   });
 });
 

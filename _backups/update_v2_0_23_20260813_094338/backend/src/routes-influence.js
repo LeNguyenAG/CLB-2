@@ -97,22 +97,7 @@ async function recalculatePlayerInfluence(playerId, connection) {
     [playerId, popularity.toFixed(2), endorsement.toFixed(2), multiplier.toFixed(3), followers, JSON.stringify(snapshot)],
     connection
   );
-  const currentFanProfile = await first(`SELECT fan_count FROM player_fan_profiles WHERE player_id=?`, [playerId], connection);
-  const targetPlayerFans = Math.max(1000, Math.round(followers * (0.48 + popularity / 260)));
-  const playerFans = currentFanProfile
-    ? Math.round(number(currentFanProfile.fan_count) * 0.85 + targetPlayerFans * 0.15)
-    : targetPlayerFans;
-  const fanLoyalty = clamp(64 - popularity * 0.12, 35, 78);
-  const mobility = clamp(22 + popularity * 0.42, 20, 80);
-  await query(
-    `INSERT INTO player_fan_profiles(player_id,fan_count,loyalty_score,mobility_score,last_calculation,recalculated_at)
-     VALUES(?,?,?,?,?,NOW(6))
-     ON DUPLICATE KEY UPDATE fan_count=VALUES(fan_count),loyalty_score=VALUES(loyalty_score),
-       mobility_score=VALUES(mobility_score),last_calculation=VALUES(last_calculation),recalculated_at=NOW(6)`,
-    [playerId,playerFans,fanLoyalty.toFixed(2),mobility.toFixed(2),JSON.stringify({targetPlayerFans,followers,popularity,formulaVersion:'2.0.23'})],
-    connection
-  );
-  return { player_id: playerId, popularity_score: popularity, endorsement_score: endorsement, signed_merch_multiplier: multiplier, social_followers: followers, fan_count:playerFans };
+  return { player_id: playerId, popularity_score: popularity, endorsement_score: endorsement, signed_merch_multiplier: multiplier, social_followers: followers };
 }
 
 async function recalculateClubInfluence(clubId, connection, reason = 'RECALCULATE') {
@@ -280,22 +265,15 @@ router.get('/influence/summary',authenticate,requireClubOrAdmin,async(req,res)=>
   const clubId=currentClubId(req);
   const profileExists=await first(`SELECT club_id FROM club_influence_profiles WHERE club_id=?`,[clubId]);
   if(!profileExists)await transaction((connection)=>recalculateClubInfluence(clubId,connection,'INITIAL_PROFILE'));
-  const [summary,players,events,campaigns,grants,history,fanTransfers]=await Promise.all([
+  const [summary,players,events,campaigns,grants,history]=await Promise.all([
     first(`SELECT s.*,w.balance AS wallet_balance,w.status AS wallet_status FROM v_club_commercial_summary s LEFT JOIN wallets w ON w.club_id=s.club_id AND w.wallet_type='CLUB' WHERE s.club_id=?`,[clubId]),
-    query(`SELECT v.*,COALESCE(pfp.fan_count,1000) AS fan_count,COALESCE(pfp.loyalty_score,55) AS fan_loyalty_score,
-                  COALESCE(pfp.mobility_score,35) AS fan_mobility_score
-           FROM v_player_influence_ranking v LEFT JOIN player_fan_profiles pfp ON pfp.player_id=v.player_id
-           WHERE v.club_id=? ORDER BY v.influence_rank LIMIT 30`,[clubId]),
+    query(`SELECT v.* FROM v_player_influence_ranking v WHERE v.club_id=? ORDER BY v.influence_rank LIMIT 30`,[clubId]),
     query(`SELECT e.*,t.title,t.description,t.category,t.decision_mode,t.icon_code,t.tone FROM club_commercial_events e JOIN commercial_event_templates t ON t.id=e.template_id WHERE e.club_id=? ORDER BY e.generated_at DESC LIMIT 40`,[clubId]),
     query(`SELECT mc.*,p.full_name,p.photo_url FROM club_merchandise_campaigns mc LEFT JOIN players p ON p.id=mc.player_id WHERE mc.club_id=? ORDER BY mc.created_at DESC LIMIT 30`,[clubId]),
     query(`SELECT gp.*,s.name AS season_name FROM influence_grant_payments gp JOIN seasons s ON s.id=gp.season_id WHERE gp.club_id=? OR gp.player_id IN(SELECT id FROM players WHERE club_id=?) ORDER BY gp.paid_at DESC LIMIT 50`,[clubId,clubId]),
-    query(`SELECT * FROM club_influence_history WHERE club_id=? ORDER BY captured_at DESC LIMIT 12`,[clubId]),
-    query(`SELECT e.*,p.full_name,fc.name AS from_club_name,tc.name AS to_club_name
-           FROM player_fan_transfer_events e JOIN players p ON p.id=e.player_id
-           LEFT JOIN clubs fc ON fc.id=e.from_club_id JOIN clubs tc ON tc.id=e.to_club_id
-           WHERE e.from_club_id=? OR e.to_club_id=? ORDER BY e.processed_at DESC LIMIT 30`,[clubId,clubId])
+    query(`SELECT * FROM club_influence_history WHERE club_id=? ORDER BY captured_at DESC LIMIT 12`,[clubId])
   ]);
-  return ok(res,{summary,players,events,campaigns,grants,history,fan_transfers:fanTransfers});
+  return ok(res,{summary,players,events,campaigns,grants,history});
 });
 
 router.post('/influence/recalculate',authenticate,requireClubOrAdmin,async(req,res)=>{

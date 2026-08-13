@@ -2,7 +2,6 @@
 
 const crypto = require('crypto');
 const express = require('express');
-const { settleFinishedMatch } = require('./stadium-match-engine');
 const {
   query,
   first,
@@ -842,15 +841,7 @@ router.post('/world-cup/matches/:id/result', authenticate, requireAdmin, async (
     await audit({ userId: req.user.id, actionCode: 'SET_WORLD_CUP_RESULT', entityTable: 'world_cup_matches', entityId: matchId }, connection);
   });
 
-  let stadiumSettlement = null;
-  let stadiumWarning = null;
-  try { stadiumSettlement = await settleFinishedMatch('WORLD_CUP', matchId, req.user.id); }
-  catch (error) { stadiumWarning = error.message; }
-  return ok(res, {
-    message: 'Đã cập nhật kết quả World Cup, đẩy đội thắng và quyết toán sân.',
-    stadium_settlement: stadiumSettlement,
-    stadium_warning: stadiumWarning
-  });
+  return ok(res, { message: 'Đã cập nhật kết quả World Cup và tự động đẩy đội thắng sang vòng tiếp theo.' });
 });
 
 router.post('/competitions/:id/world-cup/finalize-groups', authenticate, requireAdmin, async (req, res) => {

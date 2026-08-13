@@ -76,7 +76,7 @@ function weightedChoice(random, choices) {
 }
 
 function currentClubId(req, requested = null, { required = true } = {}) {
-  const raw = requested ?? req.query?.club_id ?? req.body?.club_id ?? req.user?.clubId;
+  const raw = requested ?? req.query.club_id ?? req.body.club_id ?? req.user?.clubId;
   if ((raw === null || raw === undefined || raw === '') && !required) return null;
   return assertClubScope(req, raw);
 }
@@ -320,12 +320,11 @@ function normalizeStadiumInput(body, { partial = false } = {}) {
 router.get('/public/stadiums', optionalAuthenticate, async (req, res) => {
   const rows = await query(
     `SELECT v.id,v.code,v.name,v.city,v.country_name,v.image_url,v.capacity_total,v.standard_seats,v.vip_seats,
-            v.hospitality_boxes,v.rating_score,v.stadium_class,v.level_no,v.status,s.condition_pct,s.available_after,s.matches_hosted,
+            v.hospitality_boxes,v.rating_score,v.stadium_class,v.level_no,v.status,
             GROUP_CONCAT(DISTINCT CASE WHEN l.status='ACTIVE' THEN c.name END ORDER BY l.is_primary DESC SEPARATOR ', ') AS clubs,
             MAX(CASE WHEN l.is_primary THEN c.id END) AS primary_club_id,
             MAX(CASE WHEN l.is_primary THEN c.logo_url END) AS primary_club_logo
      FROM v_stadium_ratings v
-     JOIN stadiums s ON s.id=v.id
      LEFT JOIN stadium_club_links l ON l.stadium_id=v.id
      LEFT JOIN clubs c ON c.id=l.club_id
      WHERE v.status<>'INACTIVE'

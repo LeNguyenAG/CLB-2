@@ -2,7 +2,6 @@
 
 const crypto = require('crypto');
 const express = require('express');
-const { settleFinishedMatch } = require('./stadium-match-engine');
 const {
   query, first, transaction, callProcedure, ApiError,
   parsePositiveInt, parseMoney, parseDecimal, parseEnum, parseText, parseDate,
@@ -626,15 +625,7 @@ router.post('/national-tournament/matches/:id/result', authenticate, requireAdmi
     if (!Number(lastPending.total)) await query("UPDATE competitions SET status='COMPLETED_PENDING_CLOSE' WHERE id=?", [match.competition_id], connection);
     await audit({ userId: req.user.id, actionCode: 'SET_NATIONAL_SPECIAL_RESULT', entityTable: 'national_cup_matches', entityId: matchId, details: { homeScore, awayScore, homePenalty, awayPenalty } }, connection);
   });
-  let stadiumSettlement = null;
-  let stadiumWarning = null;
-  try { stadiumSettlement = await settleFinishedMatch('NATIONAL_CUP', matchId, req.user.id); }
-  catch (error) { stadiumWarning = error.message; }
-  return ok(res, {
-    message: 'Đã lưu tỷ số, đẩy đội thắng và quyết toán sân.',
-    stadium_settlement: stadiumSettlement,
-    stadium_warning: stadiumWarning
-  });
+  return ok(res, { message: 'Đã lưu tỷ số và tự động đẩy đội thắng sang vòng kế tiếp.' });
 });
 
 router.put('/competitions/:id/national-tournament/reward-rules', authenticate, requireAdmin, async (req, res) => {

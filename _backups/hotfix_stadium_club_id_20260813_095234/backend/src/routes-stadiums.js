@@ -76,7 +76,7 @@ function weightedChoice(random, choices) {
 }
 
 function currentClubId(req, requested = null, { required = true } = {}) {
-  const raw = requested ?? req.query?.club_id ?? req.body?.club_id ?? req.user?.clubId;
+  const raw = requested ?? req.query.club_id ?? req.body.club_id ?? req.user?.clubId;
   if ((raw === null || raw === undefined || raw === '') && !required) return null;
   return assertClubScope(req, raw);
 }
